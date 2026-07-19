@@ -22,6 +22,38 @@ Git state where applicable. Records with a usable `session_id` are written to
 `.codex-observer/sessions/<session-id>/events.jsonl`; missing or invalid session
 identity is written under `ungrouped`.
 
+For humans and local tools, `.codex-observer/latest` points to the most recently
+recorded session directory. The current recording is therefore always available
+at `.codex-observer/latest/events.jsonl` without knowing a session id.
+
+## On-demand report
+
+Humans do not need to inspect the recording during normal Codex use. Generate a
+report for the latest recorded session after a meaningful work session or turn:
+
+```sh
+npm run report
+```
+
+The command prints the report and saves it under
+`.codex-observer/reports/<session-id>.md`. To reproduce a report for a known
+session during debugging, pass its exact internal id:
+
+```sh
+npm run report -- <session-id>
+```
+
+There is intentionally no historical session catalog in this one-session MVP.
+The session id remains the internal grouping key, while `latest` is the normal
+human-facing selector.
+
+Report generation is read-only with respect to raw recordings and runs only on
+demand. It does not add analysis work to hooks or change the normal `codex`
+command. Each report statement is labeled as `observed`, `explicit`,
+`inference`, or `unknown` and links to the canonical JSONL line that supports
+it. The current deterministic analyzer does not make inference-based findings;
+ambiguous tool results and missing evidence remain `unknown`.
+
 ## Documented event fields
 
 The current official hook reference documents common fields including
@@ -113,8 +145,12 @@ no hook output back to Codex, redirects recorder diagnostics, and ends with
 After submitting at least one prompt, inspect:
 
 ```text
-.codex-observer/sessions/<session-id>/events.jsonl
+.codex-observer/latest/events.jsonl
 ```
+
+The canonical session-scoped file remains under
+`.codex-observer/sessions/<session-id>/events.jsonl`. The `latest` alias is an
+atomic, best-effort local symlink and is refreshed after every recorded event.
 
 The entire `.codex-observer/` directory is ignored by Git.
 
