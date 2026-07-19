@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -46,7 +46,7 @@ test("captures Git only for session start and stop events", () => {
   assert.equal(shouldCaptureGit("PostToolUse"), false);
 });
 
-test("appends one JSON line under the session directory", () => {
+test("appends one JSON line and points latest at its session", () => {
   const root = mkdtempSync(join(tmpdir(), "codex-observer-"));
   const raw = JSON.stringify({
     session_id: "session-123",
@@ -60,4 +60,8 @@ test("appends one JSON line under the session directory", () => {
 
   assert.equal(lines.length, 1);
   assert.deepEqual(JSON.parse(lines[0] ?? ""), record);
+  assert.equal(
+    readlinkSync(join(root, ".codex-observer", "latest")),
+    join("sessions", "session-123")
+  );
 });

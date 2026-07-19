@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test scripts/record-codex-event.test.ts",
+    "test": "node --test scripts/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "report": "node scripts/report-session.ts"
   },
   "dependencies": {
     "zod": "^4.0.5"
@@ -19,4 +20,3 @@
     "node": ">=22.6"
   }
 }
-

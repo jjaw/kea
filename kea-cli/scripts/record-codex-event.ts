@@ -1,4 +1,12 @@
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  symlinkSync,
+  unlinkSync
+} from "node:fs";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
@@ -166,8 +174,34 @@ export function appendCapturedRecord(
     flag: "a",
     mode: 0o600
   });
+  updateLatestSessionPointer(rootDirectory, sessionDirectory);
 
   return outputPath;
+}
+
+function updateLatestSessionPointer(
+  rootDirectory: string,
+  sessionDirectory: string
+): void {
+  const observerDirectory = join(rootDirectory, ".codex-observer");
+  const latestPath = join(observerDirectory, "latest");
+  const temporaryPath = join(
+    observerDirectory,
+    `.latest-${process.pid}-${Date.now()}`
+  );
+
+  try {
+    symlinkSync(join("sessions", sessionDirectory), temporaryPath, "dir");
+    renameSync(temporaryPath, latestPath);
+  } catch {
+    if (existsSync(temporaryPath)) {
+      try {
+        unlinkSync(temporaryPath);
+      } catch {
+        // The event is already durable; pointer cleanup is best-effort.
+      }
+    }
+  }
 }
 
 function runGit(
