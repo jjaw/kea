@@ -20,11 +20,21 @@ contains only durable rules. If the two ever conflict, this file wins.
 
 ## Evidence model
 
+Every evidence item in an analysis bundle has exactly one source class:
+
+- `session_event`: lifecycle events such as session start;
+- `human_message`: a prompt submitted by the developer;
+- `assistant_message`: a message stated by Codex;
+- `tool_attempt`: a tool call that was initiated;
+- `tool_result`: a tool call's captured response;
+- `git_snapshot`: captured Git state.
+
 Every analytical finding must use one of these bases:
 
-- `observed`: directly captured hook, tool, test, or Git evidence;
-- `explicit`: directly stated by a human or by Codex;
-- `inference`: a conclusion reasoned from multiple evidence records;
+- `observed`: supported by activity or state evidence (`session_event`,
+  `tool_attempt`, `tool_result`, `git_snapshot`);
+- `explicit`: directly stated in a `human_message` or `assistant_message`;
+- `inference`: a conclusion reasoned from multiple cited evidence items;
 - `unknown`: the available evidence is insufficient.
 
 Rules:
@@ -33,18 +43,23 @@ Rules:
 - A model may only cite evidence IDs supplied in its input. Kea must reject
   findings citing nonexistent IDs.
 - The deterministic validator, not the model, has final authority over a
-  finding's basis. A finding claiming a basis its cited evidence types do not
-  support is downgraded, not trusted. Category-specific evidence-type rules
-  are defined in `docs/mvp-brief.md` and enforced by the validator.
+  finding's basis. A finding claiming a basis its cited source classes do
+  not support is downgraded, not trusted. Category-specific rules are
+  defined in `docs/mvp-brief.md` and enforced by the validator.
 - Confidence ratings apply only to `inference` findings. Observed and
   explicit findings do not carry model-assigned confidence.
 - Causal claims (turning points) require temporally ordered before-and-after
-  evidence, where the "after" includes activity evidence, not merely a
-  subsequent message.
+  evidence, where the after side includes activity evidence
+  (`tool_attempt`, `tool_result`, or `git_snapshot`), not merely a later
+  message.
 - The reported outcome and the independently supported outcome are separate
-  findings. Never treat an assistant success statement as verified success.
-  Independent support and contradiction may only cite system-captured
-  evidence, never assistant statements.
+  findings, related by an explicit outcome-support value. Never treat an
+  assistant success statement as verified success. Independent support and
+  contradiction may only cite activity or state evidence, never
+  `assistant_message` items.
+- Leadership insights use an `inference` basis, cite one or more valid
+  evidence IDs, and number at most two. There is no finding-to-finding
+  reference system in the MVP.
 - Use `unknown` rather than inventing intent, causality, success, failure,
   or motivation. `unknown` findings remain visible in reports; honesty about
   insufficient evidence is a feature, not a gap to hide.
@@ -64,7 +79,11 @@ Keep agent-specific formats behind adapters:
         -> validated structured analysis (+ validation summary)
         -> report renderer
 
-- Only the adapter layer may know Codex payload shapes.
+- Codex payload knowledge must remain inside the Codex capture and adapter
+  boundary. Normalized-session, analysis, validation, and rendering code
+  must not depend on raw Codex payload shapes. (The recorder may recognize
+  the small set of raw routing fields — session ID, event name — needed to
+  group and store events.)
 - Only the provider layer may know OpenAI APIs. Keep model names and provider
   configuration centralized in one config module.
 - The evidence bundle may include deterministic *structural facts*: event
@@ -78,9 +97,9 @@ Keep agent-specific formats behind adapters:
   precedence over field preservation.
 - Preserve unknown external fields at the *capture* boundary; recordings are
   the source of truth, bundles are derived.
-- Enum values, schema field semantics, the analysis prompt, and the validator
-  must draw on one shared set of definitions. Do not let the prompt and the
-  validator define the same term differently.
+- Enum values, source classes, schema field semantics, the analysis prompt,
+  and the validator must draw on one shared set of definitions. Do not let
+  the prompt and the validator define the same term differently.
 - Do not add adapters for other agents (Claude Code, Cursor, Kimi, etc.)
   unless explicitly requested.
 
@@ -104,7 +123,7 @@ Keep agent-specific formats behind adapters:
 - Before any model call: apply the size caps and redact the secret patterns
   defined in `docs/mvp-brief.md`, replacing matches with typed markers.
 - Provide a dry-run mode that prints the exact evidence bundle without
-  calling any API.
+  calling any API or requiring an API key.
 - If no API key is configured, degrade gracefully to the deterministic
   report; never crash and never prompt for credentials inside hooks.
 - Do not produce employee rankings, individual performance scores, developer
@@ -116,9 +135,9 @@ Keep agent-specific formats behind adapters:
   with Zod.
 - Request strict structured output from providers and re-validate with Zod
   regardless; never trust provider-side validation alone.
-- Build and test deterministic machinery (schema, bundle builder, validator)
-  against recorded sessions and mocked analyses before wiring live provider
-  calls.
+- Build and test all deterministic machinery (schema, bundle builder,
+  validator, dry-run) against recorded sessions and mocked analyses before
+  wiring live provider calls.
 - Add focused tests for parsing, normalization, evidence mapping, redaction,
   validation, and rendering. Mock providers in tests; tests must never call
   a real API.

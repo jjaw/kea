@@ -23,34 +23,61 @@ Implemented and tested:
 The deterministic analyzer is the fallback, evaluation baseline, and source
 of structural facts — not the product experience.
 
+## Evidence IDs and source classes
+
+Evidence IDs are `E<line>`, derived from the JSONL line number, stable and
+unique within one analyzed session. When one JSONL line yields evidence items
+of more than one source class, each additional item gets a dotted suffix so
+every item has exactly one source class:
+
+- a `Stop` line yields `E<line>` (`assistant_message`) and, when a Git
+  snapshot is present, `E<line>.git` (`git_snapshot`);
+- a `SessionStart` line yields `E<line>` (`session_event`) and, when a Git
+  snapshot is present, `E<line>.git` (`git_snapshot`).
+
+Source classes (each evidence item has exactly one): `session_event`,
+`human_message`, `assistant_message`, `tool_attempt`, `tool_result`,
+`git_snapshot`.
+
+Activity evidence means `tool_attempt`, `tool_result`, or `git_snapshot` —
+something happened, not something was said.
+
 ## Active milestone: GPT-5.6 single-session analysis
 
-Build in this order. Steps 1–5 are fully offline and testable with mocked
-analyses; the live provider lands only in step 6.
+Build in this order. Steps 1–6 are fully offline — no provider, no network,
+no API key; the live provider lands only in step 7.
 
 1. **Minimal doctor.** `npm run doctor` verifies: Node >= 22.6 with type
    stripping, the hook command resolvable from the launch directory, and a
    recent `.codex-observer/latest/events.jsonl` that exists and parses.
-   (API-key and provider checks are added in step 6.)
+   (API-key and provider checks are added in step 7.)
 2. **Rough development recording.** Record a real Codex session early and
    keep it local as the development dataset. The polished golden session is
-   recorded and sanitized later (step 8).
+   recorded and sanitized later (step 9).
 3. **Evidence bundle builder.** From a normalized session, produce a compact
    bundle: session metadata plus an ordered list of evidence items, each
-   with a stable ID (`E<line>` from the JSONL line number, unique within one
-   analyzed session), type, timestamp, turn ID, and content. Apply redaction
-   then truncation (spec below). Include deterministic *structural facts*
-   only: event ordering, attempt/result pairs matched by tool-use ID,
-   structured error indicators, prompt/assistant-message ordering, Git
-   snapshots. Never include the deterministic analyzer's semantic labels.
+   with an ID and suffix per the convention above, exactly one source class,
+   timestamp, turn ID, and content. Apply redaction then truncation (spec
+   below). Include deterministic *structural facts* only: event ordering,
+   attempt/result pairs matched by tool-use ID, structured error indicators,
+   prompt/assistant-message ordering, Git snapshots. Never include the
+   deterministic analyzer's semantic labels.
 4. **Analysis schema (Zod).** Findings carry value, basis, evidence IDs, and
    — for `inference` only — confidence (`high` / `medium` / `low`) plus a
    short confidence reason. Categories: objective; approaches; human
    interventions (correction / constraint / decision / clarification /
    approval / follow-up task / question / status request / other, each
-   citing its prompt evidence ID with a one-line justification); turning
-   points; Codex contributions; reported outcome; outcome support; evidence
-   gaps; at most two leadership insights.
+   citing its `human_message` evidence ID with a one-line justification);
+   turning points; Codex contributions; reported outcome; independently
+   supported outcome; outcome support; evidence gaps; at most two
+   leadership insights.
+
+   Outcome structure:
+
+   - `reportedOutcome` (Finding | null): what Codex claimed;
+   - `independentlySupportedOutcome` (Finding | null): what activity and
+     state evidence establishes — which may differ from the claim;
+   - `outcomeSupport`: the relationship between them (enum below).
 
    Enum semantics (shared verbatim by schema descriptions, the analysis
    prompt, and the validator):
@@ -61,52 +88,67 @@ analyses; the live provider lands only in step 6.
      failure; `completed`: the approach ran to its conclusion — success is
      NOT implied; `unknown`: insufficient evidence.
    - Outcome support (mutually exclusive) — `reported_only`: claimed by the
-     assistant, no system-captured corroboration; `independently_supported`:
-     system-captured evidence supports the outcome (an explicit claim is not
-     required); `contradicted`: system-captured evidence cuts against the
-     claimed outcome; `unknown`: insufficient evidence.
+     assistant, no corroborating activity or state evidence;
+     `independently_supported`: activity or state evidence supports the
+     outcome (an explicit claim is not required); `contradicted`: activity
+     or state evidence cuts against the claimed outcome; `unknown`:
+     insufficient evidence.
 
 5. **Deterministic post-validator.** Enforces, rejecting or downgrading and
-   recording every action in a validation summary persisted alongside the
-   analysis, keyed to the analysis run (timestamp or run counter in the
-   filename):
+   recording every action with a reason in a validation summary persisted
+   alongside the analysis, keyed to the analysis run (timestamp or run
+   counter in the filename):
 
    - every cited evidence ID exists in the bundle;
-   - basis consistency: `observed` requires system-captured items (hook,
-     tool, Git); `explicit` requires prompt or assistant-message items;
-   - `independently_supported` and `contradicted` outcomes cite only
-     system-captured evidence, never assistant statements;
-   - turning points cite temporally ordered evidence whose "after" side
-     includes activity evidence (tool call or Git change), not merely a
-     later message;
-   - Codex-contribution findings cite tool or assistant evidence, not
-     prompts;
-   - human-intervention findings cite the specific prompt event;
-   - insights have basis `inference`, cite at least one evidence item or
-     other finding, and number at most two;
+   - basis consistency by source class: `observed` requires activity or
+     state evidence (`session_event`, `tool_attempt`, `tool_result`,
+     `git_snapshot`); `explicit` requires `human_message` or
+     `assistant_message`;
+   - the `independentlySupportedOutcome` finding and any `contradicted`
+     determination cite only activity or state evidence, never
+     `assistant_message`;
+   - outcome cross-field consistency: `reported_only` requires a non-null
+     `reportedOutcome` and a null `independentlySupportedOutcome`;
+     `independently_supported` requires a non-null
+     `independentlySupportedOutcome` with valid activity/state citations;
+     `contradicted` requires both findings non-null;
+     `unknown` permits nulls;
+   - turning points cite temporally ordered evidence whose after side
+     includes activity evidence, not merely a later message;
+   - Codex-contribution findings cite `tool_attempt`, `tool_result`, or
+     `assistant_message` evidence, not `human_message`;
+   - human-intervention findings cite the specific `human_message` event;
+   - insights have basis `inference`, cite one or more valid evidence IDs,
+     and number at most two;
    - confidence appears only on `inference` findings.
 
-6. **Provider interface + GPT-5.6 implementation.** Small `AnalysisProvider`
+6. **Offline dry-run CLI.** `npm run analyze -- --dry-run` builds and prints
+   the exact evidence bundle with no provider, no network call, and no API
+   key required. Prove the full offline trust machinery here: run the
+   validator against mocked model analyses over the rough recording,
+   including the rejection and downgrade cases from the engineering rules.
+7. **Provider interface + GPT-5.6 implementation.** Small `AnalysisProvider`
    interface; GPT-5.6 via strict structured output; model name and settings
    in one config module; Zod re-validation of everything returned. Extend
    doctor with API-key presence.
-7. **CLI:** `npm run analyze` (latest), `-- SESSION_ID`, and `-- --dry-run`
-   printing the exact bundle with no network call. Missing API key → print
-   the deterministic report with a notice, exit code 0. Render the validated
+8. **Live CLI + Markdown rendering.** `npm run analyze` (latest) and
+   `-- SESSION_ID` run the live provider, validate, and render the validated
    analysis as Markdown (extend the existing report style), including all
-   `unknown` findings and the validation summary.
-8. **Golden demo session.** Deliberately record a session with a legible
+   `unknown` findings and the validation summary. Missing API key → print
+   the deterministic report with a notice, exit code 0.
+9. **Golden demo session.** Deliberately record a session with a legible
    arc: failing attempt → human correction → changed approach → verifiable
    Git result. Sanitize a copy, add its provenance note (recorded when, what
    was redacted, reviewed by whom), and commit it as the golden fixture.
    Point the mocked-provider pipeline tests at it.
-9. **HTML report.** Single self-contained file, no server or framework,
-   centered on five elements: (1) reported outcome versus supported outcome
-   side by side with the outcome-support value; (2) the session/turn
-   timeline with approaches as labeled spans and failures marked; (3) an
-   evidence-basis badge (four consistent colors) on every finding — no
-   unbadged text; (4) evidence chips that expand inline to the raw captured
-   excerpt; (5) the validator's rejection and downgrade audit box.
+10. **HTML report.** Single self-contained file, no server or framework,
+    centered on five elements: (1) reported outcome versus independently
+    supported outcome side by side with the outcome-support value; (2) the
+    session/turn timeline with approaches as labeled spans and failures
+    marked; (3) an evidence-basis badge (four consistent colors) on every
+    finding — no unbadged text; (4) evidence chips that expand inline to the
+    raw captured excerpt; (5) the validator's rejection and downgrade audit
+    box.
 
 Definition of validated: the pipeline completes on at least one real
 session; the final output contains no nonexistent citations; unsupported
@@ -147,8 +189,8 @@ Size caps (truncation explicitly marked in-text, e.g.
 - The golden fixture with provenance note.
 - `npm run doctor`.
 - Three-minute demo script (dry-run "what leaves your machine" beat, the
-  reported-vs-supported verdict, one click from finding to raw evidence,
-  the validator audit box).
+  reported-versus-supported verdict, one click from finding to raw
+  evidence, the validator audit box).
 - Rename remaining spike-era identifiers (package name, hook description);
   do not migrate the `.codex-observer/` storage path.
 
@@ -157,4 +199,5 @@ Size caps (truncation explicitly marked in-text, e.g.
 Cross-session aggregation (one sentence of future work in the demo, nothing
 more), transcript_path enrichment, other agent adapters, authentication,
 Jira/Linear/GitHub org integration, live coaching, dashboards, billing
-ingestion, storage renames, entropy-based secret scanning.
+ingestion, storage renames, entropy-based secret scanning, finding-to-finding
+reference IDs.
