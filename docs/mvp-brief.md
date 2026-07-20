@@ -86,7 +86,7 @@ The run exposed two pipeline-quality issues:
    single-feature development session, preventing the report from seeing the
    final consistency work.
 
-## Active milestone: first-live-run hardening
+## Completed milestone: first-live-run hardening
 
 This is the final pipeline-quality milestone before the golden fixture and
 leader-facing HTML report.
@@ -101,6 +101,35 @@ The work is deliberately limited to:
 
 Do not implement multi-request segmentation, the golden fixture, HTML report,
 automatic handoff, a watcher, or a dashboard during this milestone.
+
+### Runtime validation
+
+Milestone 8.2 was successfully runtime-validated against the comparison
+session and hardened run:
+
+- Comparison session:
+  `019f805c-ce10-7af0-95e9-555fcbd4d7d2`
+- Hardened validation run:
+  `2026-07-20T21-04-01-208Z-390c0b81-bd53-4d93-9a27-f6f643fd084d`
+- Serialized sanitized evidence size: 239,801 bytes
+- Request budget: 524,288 bytes
+- Total evidence items: 173
+- Retained evidence items: 173
+- Omitted evidence items: 0
+- Eligible for one-request analysis: yes
+- Provider response: completed successfully
+- Validation: 0 rejected, 0 downgraded, 3 amended
+- All generated turning points survived validation.
+- Missing temporal citations were added to canonical `evidenceIds`.
+- Every citation amendment used the action code
+  `turning_point_citations_completed`.
+- The ending semantic-consistency and outcome-corroboration work was included.
+- The outcome remained `independently_supported`.
+
+The second provider run produced a different candidate analysis. Acceptance
+therefore confirms complete evidence coverage, deterministic citation
+amendment, and survival of valid turning points; it does not require identical
+model output across runs.
 
 ### Acceptance criteria
 
@@ -525,14 +554,27 @@ Completed:
 7. Provider interface and GPT-5.6 implementation.
 8. Live CLI and Markdown rendering.
 8.1. First real live analysis.
-
-Active:
-
 8.2. First-live-run hardening:
    complete-corpus request-budget behavior, turning-point citation amendment,
-   and same-session revalidation.
+   and same-session revalidation. Runtime validation used comparison session
+   `019f805c-ce10-7af0-95e9-555fcbd4d7d2` and hardened run
+   `2026-07-20T21-04-01-208Z-390c0b81-bd53-4d93-9a27-f6f643fd084d`.
 
-Next:
+   The sanitized corpus was 239,801 bytes against a 524,288-byte budget. All
+   173 evidence items were retained, none were omitted, and the corpus was
+   eligible for one-request analysis. The provider response completed
+   successfully. Validation reported 0 rejected, 0 downgraded, and 3 amended;
+   all generated turning points survived. Missing temporal citations were
+   added to canonical `evidenceIds`, and every citation amendment used
+   `turning_point_citations_completed`. The ending semantic-consistency and
+   outcome-corroboration work was included, and the outcome remained
+   `independently_supported`.
+
+   The second provider run produced a different candidate analysis. This
+   acceptance confirms complete evidence coverage, deterministic citation
+   amendment, and survival of valid turning points, not identical model output.
+
+Active:
 
 9. **Golden demo session.** Record a contained but natural session with a
    legible arc:
@@ -545,6 +587,8 @@ Next:
    Sanitize a copy, add a provenance note stating when it was recorded, what
    was redacted, and who reviewed it, and commit it as the golden fixture.
    Point the mocked-provider full-pipeline tests at it.
+
+Next:
 
 10. **Leader-facing HTML report.** Create one self-contained file with no
     server or framework. Prioritize:
@@ -563,17 +607,17 @@ Next:
     The default view is leadership-readable. Detailed evidence remains
     inspectable without dominating the page.
 
-11. **Minimal automatic handoff.** Preserve `npm run analyze` as a manual and
-    debugging interface. Add a separate local wrapper or watcher that detects
-    a completed session and creates its report without requiring the developer
-    to run a post-session command.
-
-    Never make provider calls inside Codex hooks. Hooks may only record or mark
-    a session pending; the separate orchestrator performs analysis.
-
-12. **README and demo package.** Finish quickstart, screenshot, architecture,
+11. **README and demo package.** Finish quickstart, screenshot, architecture,
     privacy explanation, how Codex was used to build Kea, and the three-minute
     demo script.
+
+Stretch / post-hackathon:
+
+- **Minimal automatic handoff.** Preserve `npm run analyze` as the manual and
+  debugging interface. Provider calls must never run inside Codex hooks; hooks
+  may only record activity or mark a completed session as pending analysis.
+  Any future local wrapper or watcher requires explicit consent plus defined
+  privacy, API-cost, retry, and duplicate-run policies before implementation.
 
 ## Definition of validated
 
@@ -603,7 +647,6 @@ handle imperfection honestly and audibly.
 - Dry-run demonstration of exactly what leaves the machine.
 - Leader-facing self-contained HTML report.
 - Screenshot of the HTML report.
-- Minimal automatic post-session handoff.
 - Three-minute demo script centered on:
   - what leaves the machine;
   - reported versus independently supported outcome;
