@@ -703,23 +703,21 @@ The second provider run produced a different candidate analysis. This
 acceptance confirms complete evidence coverage, deterministic citation
 amendment, and survival of valid turning points, not identical model output.
 
-Active:
-
 9. **Deterministic session disposition and report eligibility.**
 
-   Implement and persist the disposition contract described above.
+   Implemented a pure deterministic automatic-analysis decision separate from
+   the final persisted `full_report`, `activity_only`, `blocked`, and
+   `analysis_failed` disposition schemas. The implementation provides
+   deterministic structural receipts, stable sanitized evidence-state hashing,
+   centralized eligibility thresholds, structurally conservative Git-change
+   and error facts, recomputable environmental blocks, safe atomic
+   latest-disposition persistence, and focused tests.
 
-   Acceptance:
+   This milestone made no provider calls or hook changes and added no worker,
+   HTML, or automatic orchestration. Automatic settlement of every real
+   session remains dependent on Milestone 11.
 
-   - every settled session receives one latest disposition;
-   - `activity_only` and blocked sessions make no provider call;
-   - receipts contain deterministic structural facts and reason codes;
-   - no disposition claims that a session was valuable, wasteful, productive,
-     or unproductive;
-   - manual analysis behavior remains available;
-   - focused tests cover the required scenarios.
-
-Next:
+Active:
 
 10. **Leader-facing HTML report and static report inbox.**
 
@@ -748,6 +746,8 @@ Next:
       `analysis_failed`;
     - keep historical runs in local audit storage rather than cluttering the
       leadership index.
+
+Next:
 
 11. **Automatic one-shot handoff.**
 
