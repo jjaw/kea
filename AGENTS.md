@@ -106,4 +106,4 @@ Keep agent-specific formats behind adapters:
 
     npm run check      # typecheck + tests
     npm run report     # deterministic report for the latest session
-    npm run report -- SESSION_ID
+    npm run report -- SESSION_ID`
