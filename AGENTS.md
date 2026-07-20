@@ -187,8 +187,13 @@ unless explicitly requested.
 - Preserve unknown external fields at capture boundaries where practical.
 - Keep Codex-specific formats behind an adapter.
 - Keep OpenAI-specific behavior behind an analysis-provider interface.
+- Keep model names and provider configuration centralized rather than
+  scattering them across the codebase.
 - Use reasonable size limits for prompts, tool output, and Git evidence sent
   to a model.
+- Treat captured prompts, tool outputs, file paths, and Git diffs as potentially
+  sensitive. Send only the evidence necessary for analysis and redact obvious
+  secrets before model calls.
 - Never commit API keys, `.env` files, or raw session recordings.
 - Add focused tests for parsing, normalization, evidence mapping, validation,
   and report rendering.
