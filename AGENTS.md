@@ -10,13 +10,11 @@ inspect the evidence and basis behind every non-unknown finding.
 
 Kea's differentiator is evidence integrity and epistemic honesty: every finding
 carries an evidence basis, machine-checked citations, and a clear line between
-what an agent *claimed* and what the evidence *supports*.
+what an agent *claimed* and what the evidence *supports*. Kea must never become
+an employee-surveillance, ranking, or productivity-scoring system.
 
-Kea must never become an employee-surveillance, ranking, or
-productivity-scoring system.
-
-**Before working on milestone or feature tasks, read `docs/mvp-brief.md`.**
-It contains current status, the active milestone, schema and validator details,
+**Before working on milestone or feature tasks, read `docs/mvp-brief.md`.** It
+contains current status, the active milestone, schema and validator details,
 redaction patterns, request budgets, and the demo plan. This file contains only
 durable rules. If the two files conflict, this file wins.
 
@@ -47,11 +45,10 @@ Rules:
 - The deterministic validator, not the model, has final authority over every
   finding's basis and category-specific validity.
 - When a claimed basis is not supported by the cited source classes, Kea
-  downgrades or rejects the finding according to the shared validator rules;
-  it never trusts the label merely because the provider returned it.
-- Confidence and a short confidence reason apply only to `inference`
-  findings. They are forbidden on `observed`, `explicit`, and `unknown`
-  findings.
+  downgrades or rejects the finding according to the shared validator rules; it
+  never trusts the label merely because the provider returned it.
+- Confidence and a short confidence reason apply only to `inference` findings.
+  They are forbidden on `observed`, `explicit`, and `unknown` findings.
 - Causal claims such as turning points require nonempty, temporally ordered
   before-and-after evidence. The after side includes activity evidence
   (`tool_attempt`, `tool_result`, or `git_snapshot`), not merely a later
@@ -67,9 +64,9 @@ Rules:
 - A `tool_attempt` proves only that an action was initiated. Establishing or
   contradicting an outcome requires result-bearing evidence: `tool_result` or
   an appropriate `git_snapshot`.
-- Leadership insights use an `inference` basis, cite one or more valid
-  evidence IDs, and number at most two. There is no finding-to-finding
-  reference system in the MVP.
+- Leadership insights use an `inference` basis, cite one or more valid evidence
+  IDs, and number at most two. There is no finding-to-finding reference system
+  in the MVP.
 - Use `unknown` rather than inventing intent, causality, success, failure, or
   motivation. Unknowns remain visible in reports; honesty about insufficient
   evidence is a product feature.
@@ -82,19 +79,25 @@ Rules:
 
 Keep agent-specific formats behind adapters:
 
-    raw events
-        -> agent adapter
-        -> normalized session
-        -> complete sanitized evidence corpus
-        -> bounded provider payload or payloads
-        -> provider
-        -> validated analysis + validation summary
-        -> renderer
+```text
+raw events
+-> agent adapter
+-> normalized session
+-> complete sanitized evidence corpus
+-> deterministic session disposition
+-> activity-only receipt
+   OR
+   bounded provider payload or payloads
+   -> provider
+   -> validated analysis + validation summary
+   -> renderer
+```
 
-- Codex payload knowledge remains inside the Codex capture and adapter
-  boundary. Normalized-session, analysis, validation, and rendering code must
-  not depend on raw Codex payload shapes. The recorder may recognize only the
-  small set of raw routing fields needed to group and store events.
+- Codex payload knowledge remains inside the Codex capture and adapter boundary.
+  Normalized-session, disposition, analysis, validation, and rendering code
+  must not depend on raw Codex payload shapes.
+- The recorder may recognize only the small set of raw routing fields needed to
+  group and store events.
 - Raw recordings are the complete local source of truth. Preserve unknown
   external fields at the capture boundary.
 - Redaction runs before truncation. Explicitly marked per-item truncation may
@@ -103,18 +106,20 @@ Keep agent-specific formats behind adapters:
   as complete.
 - A provider request budget is a transport and safety constraint, not a
   session-coverage limit. Kea must do one of the following:
+
   1. analyze the complete sanitized evidence corpus in one request;
   2. segment it with complete chronological coverage; or
   3. refuse live analysis with an explicit diagnostic.
+
 - Kea must never generate a leadership report from an undisclosed prefix,
   suffix, or partial range of a session. Until complete-coverage segmentation
   exists, an oversized corpus must fail clearly rather than be shortened.
 - The evidence corpus may include deterministic *structural facts*: event
   ordering, matched tool attempts and results, structured error indicators,
   prompt and assistant-message ordering, and Git snapshots.
-- Do not pass the deterministic analyzer's semantic classifications
-  (objective, human direction, approach, turning point, or outcome) as
-  authoritative hints. The provider derives those from evidence.
+- Do not pass the deterministic analyzer's semantic classifications (objective,
+  human direction, approach, turning point, or outcome) as authoritative hints.
+  The provider derives those from evidence.
 - Only the provider layer may know OpenAI APIs or response shapes. Keep model
   names and provider settings centralized in one configuration module.
 - Enum values, source classes, category semantics, schema descriptions,
@@ -128,38 +133,57 @@ Keep agent-specific formats behind adapters:
 - Hooks must fail open, add negligible overhead, and never prevent a Codex
   session from continuing.
 - No network or model calls may run inside Codex hooks.
-- Codex `Stop` is a turn-scoped event, not a reliable session-end signal.
-  Never initiate one provider request for every `Stop`.
+- Codex `Stop` is a turn-scoped event, not a reliable session-end signal. Never
+  initiate one provider request for every `Stop`.
 - Hooks may record activity and mark a session as pending after a completed
   turn. Any provider work must remain outside the hook execution path.
-- Analysis may be invoked manually or by a separate local orchestrator after a
-  quiet period.
+- Automatic processing uses a short-lived, one-shot local worker after a quiet
+  interval. Do not introduce a permanent daemon for the hackathon MVP.
 - Preserve the manual analysis command as the debugging, forced-analysis, and
   rerun interface after automatic handoff is added.
 
-### Automatic analysis and report eligibility
+### Session disposition and automatic analysis
 
-- Capture and report generation are separate. Kea may capture every Codex
-  session locally, but automatic provider analysis runs only for sessions that
-  satisfy deterministic report-eligibility rules.
-- Automatic analysis must require explicit project-level opt-in. Installing or
-  initializing Kea must not silently enable provider transmission.
+- Capture and report generation are separate concerns. Kea may capture every
+  Codex session locally, but not every session needs a provider-generated
+  narrative.
+- Every captured session receives a deterministic disposition after the quiet
+  interval. A session must not disappear merely because it does not qualify for
+  a full report.
+- A full-report eligibility decision means only that the available evidence can
+  support a useful session-level explanation. It must not be described as a
+  judgment that the work was meaningful, valuable, productive, wasteful, or
+  unproductive.
+- A session that lacks enough evidence for a useful narrative makes no provider
+  call. It receives an `activity_only` receipt containing deterministic
+  structural facts and a machine-readable reason.
+- Activity-only receipts remain visible and auditable in the leadership-facing
+  index. Kea must not infer waste or developer performance from one receipt.
+- Automatic provider analysis requires explicit project-level opt-in.
+  Installing or configuring capture must not silently enable provider
+  transmission.
 - A pending session must remain inactive for a configured quiet interval before
-  automatic eligibility is evaluated.
-- If newer activity appears during the quiet interval, the pending analysis is
+  disposition or automatic analysis is evaluated.
+- If newer activity appears during the quiet interval, the pending work is
   superseded by the newer session state.
 - Automatic analysis must be deduplicated by session ID and sanitized
   evidence-state hash. The same evidence state must not trigger repeated
   provider calls.
-- A session that fails automatic eligibility makes no provider call, generates
-  no leadership report, and records a machine-readable skip reason.
-- Eligibility decisions must use deterministic structural evidence and must
-  not call a model.
-- Manual analysis may override automatic eligibility when the user explicitly
-  requests it.
-- The leadership-facing report index shows only the latest successfully
-  validated report for each eligible session. Historical analysis runs remain
-  available locally for auditing and reruns.
+- Automatic analysis must use a lock and a rate bound so concurrent workers or
+  repeated turn stops cannot create duplicate or runaway provider requests.
+- Eligibility and disposition decisions use deterministic structural evidence
+  only and must not call a model.
+- Missing consent, a missing API key, an oversized corpus, or an analysis
+  failure produces a machine-readable disposition or diagnostic without a
+  misleading full report.
+- Manual analysis may explicitly override automatic full-report eligibility.
+- The leadership-facing index shows the latest disposition for every captured
+  session: either the latest validated full report or the latest deterministic
+  activity/diagnostic receipt. Historical analysis runs remain available
+  locally for auditing and reruns.
+- Automatic processing must never upload or publish a report. Writing to a
+  shared or externally served report directory requires explicit configuration
+  by the project owner or technical operator.
 
 ## Privacy and safety
 
@@ -177,11 +201,16 @@ Keep agent-specific formats behind adapters:
 - Dry-run mode prints and persists the exact complete sanitized corpus, its
   serialized size, and whether it is eligible for one-request live analysis.
   It performs no provider call and requires no API key.
-- If no API key is configured, degrade gracefully to the deterministic report;
-  never crash and never prompt for credentials inside hooks.
+- If no API key is configured, manual analysis degrades gracefully to the
+  deterministic report; it never crashes. Automatic processing must record a
+  machine-readable missing-key disposition and must never prompt for
+  credentials.
 - If the sanitized corpus exceeds the current one-request budget, make no
   provider call and generate no partial leadership report. Persist the corpus
   and a machine-readable diagnostic for inspection.
+- Leader-facing HTML and index files may contain only sanitized evidence,
+  validated analysis, validation audit data, and deterministic receipts. They
+  must never embed raw recordings or unvalidated provider output.
 - Do not produce employee rankings, individual performance scores, developer
   comparisons, or exact ROI or hours-saved claims.
 
@@ -194,7 +223,8 @@ Keep agent-specific formats behind adapters:
 - Build and test deterministic machinery against recorded sessions and mocked
   analyses. Tests must never call a real provider API.
 - Add focused tests for capture parsing, normalization, evidence mapping,
-  redaction, truncation, corpus-size handling, validation, persistence, and
+  redaction, truncation, corpus-size handling, disposition, eligibility,
+  validation, persistence, automatic orchestration, deduplication, locking, and
   rendering.
 - Corpus-budget tests must prove that eligible corpora retain every evidence
   item and that oversized live analyses make no provider call.
@@ -214,16 +244,21 @@ Keep agent-specific formats behind adapters:
 
 ## Commands
 
-    npm run check
-    npm run doctor
-    npm run report
-    npm run report -- SESSION_ID
-    npm run analyze -- --dry-run
-    npm run analyze -- --dry-run SESSION_ID
-    npm run analyze
-    npm run analyze -- SESSION_ID
+```bash
+npm run check
+npm run doctor
+npm run report
+npm run report -- SESSION_ID
+npm run analyze -- --dry-run
+npm run analyze -- --dry-run SESSION_ID
+npm run analyze
+npm run analyze -- SESSION_ID
+```
 
 `npm run check` runs typechecking and tests. `npm run report` is the
 deterministic fallback. `npm run analyze -- --dry-run` exposes the exact
 sanitized corpus without a provider call. `npm run analyze` performs live
 analysis when the API key and request-budget checks pass.
+
+Planned commands such as `npm run demo` belong in `docs/mvp-brief.md` until
+they are implemented and tested.

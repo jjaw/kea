@@ -5,8 +5,8 @@ conflicts with `AGENTS.md`, `AGENTS.md` wins.
 
 ## Positioning
 
-"Kea explains the why behind Codex usage — and refuses to claim what the
-evidence doesn't support."
+> Kea explains the why behind Codex usage — and refuses to claim what the
+> evidence doesn't support.
 
 Kea is built primarily for technical leaders. Capture happens on the
 developer's machine, but the product output should help a leader understand:
@@ -21,9 +21,15 @@ developer's machine, but the product output should help a leader understand:
 - what leadership-level lessons are reasonably inferable.
 
 The developer must be able to inspect the evidence behind every non-unknown
-finding. The leader-facing report should show the conclusion first and keep
-raw technical evidence available on demand rather than making the audit trail
-the primary reading experience.
+finding. The leader-facing report should show the conclusion first and keep raw
+technical evidence available on demand rather than making the audit trail the
+primary reading experience.
+
+The hackathon product must not require the developer to generate or send a
+report after every Codex session. After one-time project configuration and
+explicit consent, Kea should settle each captured session automatically and
+make the resulting report or activity receipt available in a static
+leader-facing report inbox.
 
 ## Current status
 
@@ -61,26 +67,26 @@ source of structural facts. It is not the primary product experience.
 
 The first real provider-backed analysis completed without an unhandled error.
 
-- Session:
-  `019f805c-ce10-7af0-95e9-555fcbd4d7d2`
+- Session: `019f805c-ce10-7af0-95e9-555fcbd4d7d2`
 - Run:
   `2026-07-20T17-34-52-238Z-faf31e63-6973-476a-8839-56a2d6b2f4c2`
-- Validation:
-  2 rejected, 0 downgraded
-- Successful behavior:
-  - objective and approach grouping were useful;
-  - the initial specification was classified as a constraint;
-  - the later consistency redirect was classified as a correction;
-  - reported and independently supported outcomes remained separate;
-  - independent support cited result-bearing evidence;
-  - missing ending evidence became visible unknowns instead of speculation.
+- Validation: 2 rejected, 0 downgraded
+
+Successful behavior:
+
+- objective and approach grouping were useful;
+- the initial specification was classified as a constraint;
+- the later consistency redirect was classified as a correction;
+- reported and independently supported outcomes remained separate;
+- independent support cited result-bearing evidence;
+- missing ending evidence became visible unknowns instead of speculation.
 
 The run exposed two pipeline-quality issues:
 
 1. Two substantively valid turning points were rejected because temporal IDs in
    `beforeEvidenceIds` or `afterEvidenceIds` were not duplicated in the
-   canonical `evidenceIds` list. The provider had not been told to perform
-   that redundant bookkeeping.
+   canonical `evidenceIds` list. The provider had not been told to perform that
+   redundant bookkeeping.
 2. The approximately 128 KiB whole-bundle ceiling repeatedly removed evidence
    from the end. It omitted 72 ending evidence items from a normal,
    single-feature development session, preventing the report from seeing the
@@ -88,10 +94,8 @@ The run exposed two pipeline-quality issues:
 
 ## Completed milestone: first-live-run hardening
 
-This is the final pipeline-quality milestone before the golden fixture and
-leader-facing HTML report.
-
-The work is deliberately limited to:
+This was the final pipeline-quality milestone before product presentation and
+automatic handoff. The work was deliberately limited to:
 
 1. preserve the complete sanitized evidence corpus for normal single-request
    analysis;
@@ -99,16 +103,15 @@ The work is deliberately limited to:
 3. deterministically amend incomplete turning-point canonical citations;
 4. rerun the same real session and compare the before/after audit and report.
 
-Do not implement multi-request segmentation, the golden fixture, HTML report,
-automatic handoff, a watcher, or a dashboard during this milestone.
+It did not implement multi-request segmentation, the reference fixture, HTML
+reporting, automatic handoff, a watcher, or a dashboard.
 
 ### Runtime validation
 
 Milestone 8.2 was successfully runtime-validated against the comparison
 session and hardened run:
 
-- Comparison session:
-  `019f805c-ce10-7af0-95e9-555fcbd4d7d2`
+- Comparison session: `019f805c-ce10-7af0-95e9-555fcbd4d7d2`
 - Hardened validation run:
   `2026-07-20T21-04-01-208Z-390c0b81-bd53-4d93-9a27-f6f643fd084d`
 - Serialized sanitized evidence size: 239,801 bytes
@@ -150,16 +153,16 @@ model output across runs.
 
 ## Evidence IDs and source classes
 
-Evidence IDs are `E<line>`, derived from the JSONL line number, stable and
+Evidence IDs are `E<lineNumber>`, derived from the JSONL line number, stable and
 unique within one analyzed session.
 
 When one JSONL line yields items of more than one source class, each additional
 item receives a dotted suffix:
 
-- a `Stop` line yields `E<line>` (`assistant_message`) and, when present,
-  `E<line>.git` (`git_snapshot`);
-- a `SessionStart` line yields `E<line>` (`session_event`) and, when present,
-  `E<line>.git` (`git_snapshot`).
+- a `Stop` line yields `E<lineNumber>` (`assistant_message`) and, when present,
+  `E<lineNumber>.git` (`git_snapshot`);
+- a `SessionStart` line yields `E<lineNumber>` (`session_event`) and, when
+  present, `E<lineNumber>.git` (`git_snapshot`).
 
 Each evidence item has exactly one source class:
 
@@ -172,14 +175,11 @@ Each evidence item has exactly one source class:
 
 Shared groups:
 
-- observed source classes:
-  `session_event`, `tool_attempt`, `tool_result`, `git_snapshot`;
-- explicit source classes:
-  `human_message`, `assistant_message`;
-- activity source classes:
-  `tool_attempt`, `tool_result`, `git_snapshot`;
-- result-bearing outcome source classes:
-  `tool_result`, `git_snapshot`.
+- observed source classes: `session_event`, `tool_attempt`, `tool_result`,
+  `git_snapshot`;
+- explicit source classes: `human_message`, `assistant_message`;
+- activity source classes: `tool_attempt`, `tool_result`, `git_snapshot`;
+- result-bearing outcome source classes: `tool_result`, `git_snapshot`.
 
 A `tool_attempt` establishes that an action started. It does not establish the
 result of that action.
@@ -190,10 +190,9 @@ from or import the shared definitions module. Do not maintain parallel lists.
 
 ## Complete sanitized evidence corpus
 
-A raw recording is the complete local source of truth.
-
-The evidence-corpus builder creates an ordered, deterministic corpus containing
-every normalized evidence item after:
+A raw recording is the complete local source of truth. The evidence-corpus
+builder creates an ordered, deterministic corpus containing every normalized
+evidence item after:
 
 1. secret redaction;
 2. explicitly marked per-item truncation.
@@ -216,7 +215,9 @@ approach, intervention, turning point, outcome, or insight.
 
 The MVP uses a single-provider-request safety budget of:
 
-    512 * 1024 bytes
+```text
+512 * 1024 bytes
+```
 
 The budget is measured against the complete serialized sanitized corpus.
 
@@ -367,17 +368,16 @@ A human prompt alone cannot establish a Codex contribution.
 
 - `reportedOutcome` (`Finding | null`): what Codex claimed; cites only
   `assistant_message` evidence.
-- `independentlySupportedOutcome` (`Finding | null`): what captured activity
-  or repository state establishes; cites only activity evidence and requires
-  at least one result-bearing item (`tool_result` or `git_snapshot`) to
-  establish or contradict an outcome.
-- `outcomeSupport`: the mutually exclusive relationship between those
-  findings.
+- `independentlySupportedOutcome` (`Finding | null`): what captured activity or
+  repository state establishes; cites only activity evidence and requires at
+  least one result-bearing item (`tool_result` or `git_snapshot`) to establish
+  or contradict an outcome.
+- `outcomeSupport`: the mutually exclusive relationship between those findings.
 
 Outcome-support values:
 
-- `reported_only`: the assistant made a claim, but no qualifying
-  result-bearing evidence corroborates or contradicts it;
+- `reported_only`: the assistant made a claim, but no qualifying result-bearing
+  evidence corroborates or contradicts it;
 - `independently_supported`: result-bearing evidence supports an outcome; an
   assistant claim is optional;
 - `contradicted`: a reported outcome exists and result-bearing
@@ -428,8 +428,8 @@ It enforces:
 Validation actions are:
 
 - `rejected`: the finding cannot survive a substantive rule;
-- `downgraded`: the finding survives with a weaker basis, support
-  relationship, or corrected metadata;
+- `downgraded`: the finding survives with a weaker basis, support relationship,
+  or corrected metadata;
 - `amended`: deterministic bookkeeping was repaired without weakening the
   finding.
 
@@ -453,22 +453,23 @@ The validation summary persists:
 
 ## Provider and live pipeline
 
-`AnalysisProvider` isolates provider-specific behavior.
-
-Only the OpenAI provider module may depend on OpenAI API request or response
-shapes. Model and reasoning settings remain centralized.
+`AnalysisProvider` isolates provider-specific behavior. Only the OpenAI
+provider module may depend on OpenAI API request or response shapes. Model and
+reasoning settings remain centralized.
 
 Live flow:
 
-    selected recording
-        -> normalized session
-        -> complete sanitized evidence corpus
-        -> request-budget eligibility check
-        -> provider structured analysis
-        -> Zod re-validation
-        -> deterministic post-validation
-        -> run-scoped persistence
-        -> Markdown report
+```text
+selected recording
+-> normalized session
+-> complete sanitized evidence corpus
+-> request-budget eligibility check
+-> provider structured analysis
+-> Zod re-validation
+-> deterministic post-validation
+-> run-scoped persistence
+-> Markdown report
+```
 
 `npm run analyze` analyzes the latest session.
 
@@ -528,7 +529,10 @@ Do not add entropy-based secret detection for the hackathon. False positives
 are worse than a documented best-effort list plus dry-run inspection.
 
 Per-item truncation is explicitly marked in text, for example:
-`…[truncated 12,340 bytes]`.
+
+```text
+…[truncated 12,340 bytes]
+```
 
 Current per-item limits:
 
@@ -540,6 +544,130 @@ Current per-item limits:
 
 These limits control one evidence item's content. They do not authorize removal
 of evidence items from the session.
+
+## Hackathon product flow
+
+For the supported hackathon live path, Kea is configured in the project once by
+the project owner or technical operator. That setup:
+
+- enables the existing passive Codex hooks;
+- obtains explicit consent before automatic provider transmission;
+- verifies that `OPENAI_API_KEY` is available to the background worker;
+- optionally configures a static report output directory.
+
+After setup, the developer uses the normal `codex` command and performs no Kea
+action after a session.
+
+```text
+Codex turn completes
+-> Stop hook records evidence and refreshes a pending marker
+-> hook exits immediately
+-> one-shot worker waits for a quiet interval
+-> newer activity supersedes the older pending state
+-> worker builds the complete sanitized corpus
+-> deterministic disposition is produced
+-> full-report eligible:
+     provider analysis
+     -> validation
+     -> HTML report
+     -> report index update
+   activity-only or blocked:
+     deterministic receipt
+     -> report index update
+-> worker exits
+```
+
+The manual commands remain available for debugging, inspection, reruns, and
+explicitly forced analysis. They are not the normal leadership-report workflow.
+
+The default local inbox should be a static, browser-readable path under:
+
+```text
+.codex-observer/reports/index.html
+```
+
+A project owner may explicitly configure a different directory, including an
+approved shared or internally served static directory. Kea must never upload or
+publish reports automatically.
+
+For the hackathon demo, a sanitized sample inbox may be published separately so
+judges can view the output through a browser.
+
+## Session dispositions
+
+Every settled captured session receives one latest disposition.
+
+### `full_report`
+
+The deterministic rule finds enough structural evidence to justify a
+session-level narrative, the provider run succeeds, and the validated report is
+generated.
+
+### `activity_only`
+
+The session is retained, but the deterministic rule finds too little evidence
+for a useful provider-generated narrative. No provider call is made.
+
+The receipt includes, at minimum:
+
+- session ID;
+- sanitized evidence-state hash;
+- last observed activity time;
+- human-message count;
+- tool-attempt count;
+- tool-result count;
+- whether a Git-state change was observed;
+- whether verification-like result activity was observed;
+- machine-readable disposition reason.
+
+`activity_only` does not mean useless, wasteful, productive, or unproductive.
+It means only that Kea did not have enough evidence for a useful standalone
+narrative. These receipts remain visible because repeated low-information or
+unfinished activity may become relevant to future cross-session analysis, even
+though aggregation is out of scope for the hackathon.
+
+### `blocked`
+
+Automatic full analysis could not proceed because of a deterministic condition,
+such as:
+
+- `automatic_analysis_not_enabled`;
+- `missing_api_key`;
+- `bundle_too_large`.
+
+The receipt records the reason and makes no provider call.
+
+### `analysis_failed`
+
+The session was eligible and a provider or pipeline attempt began, but the run
+failed. The index shows a diagnostic state rather than a misleading report.
+
+### Eligibility rule requirements
+
+The initial full-report eligibility rule must:
+
+- use deterministic structural facts only;
+- make no model call;
+- be centralized and tested;
+- be conservative about provider cost;
+- preserve all sessions through receipts;
+- avoid interpreting no Git change as no value;
+- allow an explicit manual force override.
+
+Before automatic analysis is enabled, tests must cover at least:
+
+1. one question with no tool or repository activity -> `activity_only`;
+2. one prompt producing a repository change and verification result ->
+   full-report eligible;
+3. a multi-turn investigation with errors or abandoned approaches but no final
+   Git change -> full-report eligible when the configured structural threshold
+   is met;
+4. missing consent -> `blocked`, no provider call;
+5. missing API key -> `blocked`, no provider call;
+6. oversized corpus -> `blocked` with `bundle_too_large`, no provider call.
+
+The exact numeric thresholds belong in a centralized configuration module and
+must be documented in tests before the automatic worker may call a provider.
 
 ## Milestone plan
 
@@ -554,116 +682,201 @@ Completed:
 7. Provider interface and GPT-5.6 implementation.
 8. Live CLI and Markdown rendering.
 8.1. First real live analysis.
-8.2. First-live-run hardening:
-   complete-corpus request-budget behavior, turning-point citation amendment,
-   and same-session revalidation. Runtime validation used comparison session
-   `019f805c-ce10-7af0-95e9-555fcbd4d7d2` and hardened run
-   `2026-07-20T21-04-01-208Z-390c0b81-bd53-4d93-9a27-f6f643fd084d`.
+8.2. First-live-run hardening: complete-corpus request-budget behavior,
+turning-point citation amendment, and same-session revalidation.
 
-   The sanitized corpus was 239,801 bytes against a 524,288-byte budget. All
-   173 evidence items were retained, none were omitted, and the corpus was
-   eligible for one-request analysis. The provider response completed
-   successfully. Validation reported 0 rejected, 0 downgraded, and 3 amended;
-   all generated turning points survived. Missing temporal citations were
-   added to canonical `evidenceIds`, and every citation amendment used
-   `turning_point_citations_completed`. The ending semantic-consistency and
-   outcome-corroboration work was included, and the outcome remained
-   `independently_supported`.
+Runtime validation used comparison session
+`019f805c-ce10-7af0-95e9-555fcbd4d7d2` and hardened run
+`2026-07-20T21-04-01-208Z-390c0b81-bd53-4d93-9a27-f6f643fd084d`.
 
-   The second provider run produced a different candidate analysis. This
-   acceptance confirms complete evidence coverage, deterministic citation
-   amendment, and survival of valid turning points, not identical model output.
+The sanitized corpus was 239,801 bytes against a 524,288-byte budget. All 173
+evidence items were retained, none were omitted, and the corpus was eligible
+for one-request analysis. The provider response completed successfully.
+Validation reported 0 rejected, 0 downgraded, and 3 amended; all generated
+turning points survived. Missing temporal citations were added to canonical
+`evidenceIds`, and every citation amendment used
+`turning_point_citations_completed`. The ending semantic-consistency and
+outcome-corroboration work was included, and the outcome remained
+`independently_supported`.
+
+The second provider run produced a different candidate analysis. This
+acceptance confirms complete evidence coverage, deterministic citation
+amendment, and survival of valid turning points, not identical model output.
 
 Active:
 
-9. **Installable CLI and cross-project bootstrap.**
+9. **Deterministic session disposition and report eligibility.**
 
-   Package Kea as a scoped public npm package with a `kea` executable.
+   Implement and persist the disposition contract described above.
 
-   Implement:
+   Acceptance:
 
-   - `kea init`;
-   - `kea hook`;
-   - `kea doctor`;
-   - `kea analyze`;
-   - `kea demo`.
-
-   `kea init` creates or merges project-local Codex hooks, adds local Kea
-   storage to `.gitignore`, writes project configuration, and obtains explicit
-   consent for automatic analysis.
-
-   Hooks invoke the installed package rather than requiring Kea source files
-   inside the consuming repository.
+   - every settled session receives one latest disposition;
+   - `activity_only` and blocked sessions make no provider call;
+   - receipts contain deterministic structural facts and reason codes;
+   - no disposition claims that a session was valuable, wasteful, productive,
+     or unproductive;
+   - manual analysis behavior remains available;
+   - focused tests cover the required scenarios.
 
 Next:
 
-10. **Leader-facing HTML report and local report inbox.**
+10. **Leader-facing HTML report and static report inbox.**
 
-    Generate one self-contained HTML report from validated analysis, validation
-    summary, and sanitized evidence.
+    Generate a self-contained HTML report from only:
 
-    Maintain a static local report index that shows the latest validated report
-    for each eligible session. Historical runs remain in local audit storage.
+    - validated analysis;
+    - validation summary;
+    - sanitized evidence bundle.
 
-11. **Report eligibility and automatic one-shot handoff.**
+    The report must:
 
-    Capture all sessions locally, but automatically analyze only sessions that
-    satisfy deterministic meaningful-activity rules.
+    - show the leadership conclusion first;
+    - distinguish reported from independently supported outcomes;
+    - display a basis badge for every finding;
+    - provide expandable, escaped evidence;
+    - expose rejected, downgraded, and amended validator actions;
+    - make unknowns visible;
+    - make no external requests;
+    - require no server or frontend framework.
 
-    Codex `Stop` is turn-scoped. It may only record activity and mark a session
-    pending.
+    Generate a static `index.html` that shows the latest disposition for every
+    captured session:
 
-    A short-lived worker:
+    - link to the latest validated HTML report for `full_report`;
+    - show the deterministic receipt for `activity_only`, `blocked`, or
+      `analysis_failed`;
+    - keep historical runs in local audit storage rather than cluttering the
+      leadership index.
 
-    - waits for a quiet interval;
-    - exits if newer activity appears;
-    - evaluates report eligibility without a provider call;
-    - deduplicates by session ID and evidence-state hash;
-    - performs analysis only after explicit opt-in;
-    - writes the HTML report and updates the report index.
+11. **Automatic one-shot handoff.**
 
-    Do not implement a permanent daemon.
+    Extend the existing `Stop` capture path only enough to refresh a pending
+    marker and launch a detached, short-lived worker. The hook must return
+    immediately and must never call a provider.
+
+    The worker:
+
+    - waits for a configurable quiet interval;
+    - exits when a newer pending state supersedes it;
+    - builds the complete sanitized corpus;
+    - computes the sanitized evidence-state hash;
+    - acquires a per-session lock;
+    - avoids reprocessing an already-settled evidence state;
+    - enforces a per-session automatic-call rate bound;
+    - writes an activity or diagnostic receipt for non-reportable states;
+    - runs the existing provider pipeline only for opted-in, full-report
+      eligible sessions;
+    - writes the HTML report and updates the static index;
+    - exits.
+
+    Use a practical default quiet interval for normal use and a shorter explicit
+    test/demo override. Do not implement a permanent daemon.
+
+    Acceptance:
+
+    - the developer finishes ordinary Codex work and runs no Kea command;
+    - trivial activity produces a receipt without a provider call;
+    - eligible activity produces one validated HTML report;
+    - repeated `Stop` events do not create duplicate provider calls;
+    - missing consent, missing key, oversized corpus, and provider failure are
+      visible and non-destructive;
+    - manual dry-run, selected-session analysis, and reruns still work.
 
 12. **Sanitized reference fixture and credential-free demo.**
 
-    Record a real session through the installed cross-project workflow.
+    Record one real, ordinary development session through the automatic
+    project-local workflow. Do not tell Codex to manufacture a failure or
+    optimize its behavior for Kea.
 
-    Commit:
+    Commit only after manual sanitization:
 
-    - a sanitized recording;
-    - provenance documentation;
+    - the recording;
+    - a provenance note;
     - mocked provider output;
-    - expected validator audit.
+    - expected validated analysis and validator audit;
+    - expected disposition;
+    - expected HTML/index assertions.
 
-    `kea demo` runs the real local pipeline against the fixture without an API
-    key and generates the leader-facing HTML report.
+    Add:
 
-13. **Clean-project acceptance, npm publication, and submission package.**
+    ```bash
+    npm run demo
+    ```
 
-    Install the packed tarball into a clean test repository and verify:
+    `npm run demo` must:
 
-    - initialization;
-    - hook trust and capture;
-    - eligibility filtering;
-    - automatic analysis;
-    - report generation;
-    - report index;
-    - credential-free demo.
+    - require no API key;
+    - load the sanitized reference fixture;
+    - use the real evidence builder, validator, persistence, HTML renderer, and
+      index renderer;
+    - use mocked provider output;
+    - generate a viewable leadership report and index;
+    - print their paths;
+    - never mutate or inspect a user's real recordings.
 
-    Then complete npm publication, README, supported-platform notes, license,
-    screenshot, sample report, video, and Devpost submission.
+13. **README, acceptance pass, and submission package.**
 
-Stretch / post-hackathon:
+    Verify from a clean clone:
 
-- **Minimal automatic handoff.** Preserve `npm run analyze` as the manual and
-  debugging interface. Provider calls must never run inside Codex hooks; hooks
-  may only record activity or mark a completed session as pending analysis.
-  Any future local wrapper or watcher requires explicit consent plus defined
-  privacy, API-cost, retry, and duplicate-run policies before implementation.
+    ```bash
+    npm ci
+    npm run check
+    npm run doctor
+    npm run demo
+    ```
+
+    Also rehearse one live automatic session with explicit consent and a short
+    demo quiet interval.
+
+    Complete:
+
+    - README with product story, evidence model, privacy model, supported
+      platform, quickstart, judge demo, live demo, and limitations;
+    - open-source license;
+    - sanitized sample report inbox;
+    - browser screenshot;
+    - under-three-minute demo video;
+    - submission description;
+    - final dry-run review of exactly what leaves the machine.
+
+### Time-permitting only after the core demo is frozen
+
+Package publication is desirable, but it must not destabilize the working
+capture path before the automatic project-local demo is complete.
+
+The product name remains **Kea**.
+
+A future scoped package may use a name such as:
+
+```text
+@<npm-scope>/kea-codex
+```
+
+while exposing the executable:
+
+```text
+kea
+```
+
+A package milestone would include:
+
+- `kea init`;
+- `kea hook`;
+- `kea doctor`;
+- `kea analyze`;
+- `kea demo`;
+- hooks that invoke the installed package instead of `$PWD/scripts/...`;
+- consumer-project-relative storage;
+- clean tarball installation testing;
+- `npm pack --dry-run`;
+- scoped public publication only after clean-project acceptance.
+
+Do not claim arbitrary cross-project installation until this path is tested.
 
 ## Definition of validated
 
-The single-session pipeline is validated when:
+The single-session evidence pipeline is validated when:
 
 - at least one real provider-backed session completes;
 - the provider receives the complete sanitized corpus or the run refuses
@@ -672,29 +885,49 @@ The single-session pipeline is validated when:
 - the final output contains no nonexistent citations;
 - unsupported bases, outcome claims, and causal claims are rejected,
   downgraded, or deterministically amended according to policy;
-- every rejection, downgrade, and amendment appears in the persisted
-  validation summary;
+- every rejection, downgrade, and amendment appears in the persisted validation
+  summary;
 - all unknowns remain visible;
 - no unhandled error occurs.
 
 Provider output is not required to be perfect. The pipeline is required to
 handle imperfection honestly and audibly.
 
+The automatic product flow is hackathon-ready when:
+
+- every captured settled session receives a latest disposition;
+- developers do not run a Kea command after ordinary Codex work;
+- activity-only and blocked sessions make no provider call;
+- eligible sessions produce one latest validated HTML report;
+- the static index shows both full reports and receipts;
+- repeated turn stops do not cause duplicate or runaway provider calls;
+- automatic provider transmission is explicitly enabled;
+- `npm run demo` reproduces the leadership experience without credentials.
+
 ## Hackathon deliverables
 
-- README covering the problem, evidence model, privacy model, quickstart, and
-  how Codex was used to build Kea.
-- Sanitized golden fixture with provenance note.
+- README covering the problem, evidence model, privacy model, automatic flow,
+  quickstart, judge demo, and how Codex was used to build Kea.
+- Open-source license.
+- Sanitized reference fixture with provenance note.
 - `npm run doctor`.
+- `npm run demo`.
 - Dry-run demonstration of exactly what leaves the machine.
+- Automatic project-local handoff requiring no post-session developer action.
 - Leader-facing self-contained HTML report.
+- Static report index containing full reports and deterministic receipts.
+- Sanitized browser-viewable sample report.
 - Screenshot of the HTML report.
-- Three-minute demo script centered on:
+- Under-three-minute demo centered on:
+
+  - the developer using ordinary Codex without interacting with Kea;
+  - automatic session disposition;
   - what leaves the machine;
   - reported versus independently supported outcome;
   - one leadership insight;
   - one click from finding to evidence;
-  - the validator audit.
+  - the validator audit;
+  - a short activity-only session remaining visible without a provider call.
 
 Do not migrate the `.codex-observer/` storage path solely for branding.
 
@@ -712,8 +945,9 @@ Do not migrate the `.codex-observer/` storage path solely for branding.
 - transcript-path enrichment;
 - entropy-based secret scanning;
 - finding-to-finding reference IDs;
-- storage-path migrations.
+- storage-path migrations;
+- a permanent daemon;
+- automatic public report upload.
 
-Cross-session aggregation and complete-coverage segmented analysis may appear
-as brief future work in the demo, but they are not hackathon implementation
-tasks.
+Cross-session aggregation and complete-coverage segmented analysis may appear as
+brief future work in the demo, but they are not hackathon implementation tasks.
