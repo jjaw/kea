@@ -845,19 +845,14 @@ Next:
 Package publication is desirable, but it must not destabilize the working
 capture path before the automatic project-local demo is complete.
 
-The product name remains **Kea**.
+The hackathon product name remains **Kea**.
 
-A future scoped package may use a name such as:
+If published during the hackathon, the provisional npm package name is
+`@<npm-scope>/kea-codex`, exposing the `kea` executable.
 
-```text
-@<npm-scope>/kea-codex
-```
-
-while exposing the executable:
-
-```text
-kea
-```
+The scoped name avoids registry conflict but is not a final trademark or
+commercial-brand decision. Product naming should be reviewed before a broader
+launch.
 
 A package milestone would include:
 
