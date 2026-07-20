@@ -5,8 +5,7 @@ import type {
   NormalizedEvent,
   NormalizedSession
 } from "./codex-session-adapter.ts";
-
-export type EvidenceBasis = "observed" | "explicit" | "inference" | "unknown";
+import type { EvidenceBasis } from "./analysis-definitions.ts";
 
 export type Finding<T> = {
   value: T | null;
