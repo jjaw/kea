@@ -21,6 +21,11 @@ export type AnalysisRunArtifacts = {
   bundlePath: string;
   analysisPath: string | null;
   validationSummaryPath: string | null;
+  candidateAnalysisPath: string | null;
+  providerResponsePath: string | null;
+  providerErrorPath: string | null;
+  metadataPath: string | null;
+  reportPath: string | null;
 };
 
 export type PersistedValidationResult = ValidationResult & {
@@ -38,6 +43,11 @@ export function persistAnalysisRun(
     runId?: string;
     analysis?: Analysis;
     validationSummary?: ValidationSummary;
+    candidateAnalysis?: unknown;
+    providerResponse?: unknown;
+    providerError?: unknown;
+    metadata?: Record<string, unknown>;
+    reportMarkdown?: string;
   } = {}
 ): AnalysisRunArtifacts {
   const runId = options.runId ?? createAnalysisRunId();
@@ -56,6 +66,12 @@ export function persistAnalysisRun(
   ) {
     throw new Error("Validation summary run id does not match the analysis run");
   }
+  if (
+    options.reportMarkdown !== undefined &&
+    (options.analysis === undefined || options.validationSummary === undefined)
+  ) {
+    throw new Error("A Markdown report requires validated analysis artifacts");
+  }
 
   const directory = join(projectRoot, ".codex-observer", "analysis-runs", runId);
   if (existsSync(directory)) {
@@ -67,11 +83,37 @@ export function persistAnalysisRun(
   writeJsonAtomically(bundlePath, bundle);
   let analysisPath: string | null = null;
   let validationSummaryPath: string | null = null;
+  let candidateAnalysisPath: string | null = null;
+  let providerResponsePath: string | null = null;
+  let providerErrorPath: string | null = null;
+  let metadataPath: string | null = null;
+  let reportPath: string | null = null;
+
+  if (options.candidateAnalysis !== undefined) {
+    candidateAnalysisPath = join(directory, "candidate-analysis.json");
+    writeJsonAtomically(candidateAnalysisPath, options.candidateAnalysis);
+  }
+  if (options.providerResponse !== undefined) {
+    providerResponsePath = join(directory, "provider-response.json");
+    writeJsonAtomically(providerResponsePath, options.providerResponse);
+  }
+  if (options.providerError !== undefined) {
+    providerErrorPath = join(directory, "provider-error.json");
+    writeJsonAtomically(providerErrorPath, options.providerError);
+  }
+  if (options.metadata !== undefined) {
+    metadataPath = join(directory, "metadata.json");
+    writeJsonAtomically(metadataPath, { ...options.metadata, runId });
+  }
   if (options.analysis !== undefined && options.validationSummary !== undefined) {
     analysisPath = join(directory, "analysis.json");
     validationSummaryPath = join(directory, "validation-summary.json");
     writeJsonAtomically(analysisPath, options.analysis);
     writeJsonAtomically(validationSummaryPath, options.validationSummary);
+  }
+  if (options.reportMarkdown !== undefined) {
+    reportPath = join(directory, "report.md");
+    writeTextAtomically(reportPath, options.reportMarkdown);
   }
 
   return {
@@ -79,7 +121,12 @@ export function persistAnalysisRun(
     directory,
     bundlePath,
     analysisPath,
-    validationSummaryPath
+    validationSummaryPath,
+    candidateAnalysisPath,
+    providerResponsePath,
+    providerErrorPath,
+    metadataPath,
+    reportPath
   };
 }
 
@@ -87,14 +134,33 @@ export function validateAndPersistAnalysisRun(
   projectRoot: string,
   bundle: EvidenceBundle,
   candidate: unknown,
-  now: Date = new Date()
+  now: Date = new Date(),
+  options: {
+    candidateAnalysis?: unknown;
+    providerResponse?: unknown;
+    metadata?: Record<string, unknown>;
+    renderMarkdown?: (
+      analysis: Analysis,
+      summary: ValidationSummary,
+      runId: string
+    ) => string;
+  } = {}
 ): PersistedValidationResult {
   const runId = createAnalysisRunId(now);
   const result = validateAnalysis(candidate, bundle, runId, now);
+  const reportMarkdown = options.renderMarkdown?.(
+    result.analysis,
+    result.summary,
+    runId
+  );
   const artifacts = persistAnalysisRun(projectRoot, bundle, {
     runId,
     analysis: result.analysis,
-    validationSummary: result.summary
+    validationSummary: result.summary,
+    candidateAnalysis: options.candidateAnalysis,
+    providerResponse: options.providerResponse,
+    metadata: options.metadata,
+    reportMarkdown
   });
   return { ...result, artifacts };
 }
@@ -104,9 +170,13 @@ export function serializeJson(value: unknown): string {
 }
 
 function writeJsonAtomically(path: string, value: unknown): void {
+  writeTextAtomically(path, serializeJson(value));
+}
+
+function writeTextAtomically(path: string, value: string): void {
   const temporaryPath = `${path}.${process.pid}.${Date.now()}.tmp`;
   try {
-    writeFileSync(temporaryPath, serializeJson(value), {
+    writeFileSync(temporaryPath, value, {
       encoding: "utf8",
       mode: 0o600
     });

@@ -1,24 +1,253 @@
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readCodexSessionFile } from "../src/codex-session-adapter.ts";
+import { AnalysisSchema } from "../src/analysis-definitions.ts";
+import type {
+  AnalysisProvider,
+  AnalysisProviderResult
+} from "../src/analysis-provider.ts";
+import { serializeError } from "../src/analysis-provider.ts";
+import { renderAnalysisReport } from "../src/analysis-report.ts";
 import {
   persistAnalysisRun,
   serializeJson,
+  validateAndPersistAnalysisRun,
   type AnalysisRunArtifacts
 } from "../src/analysis-run-store.ts";
+import { readCodexSessionFile } from "../src/codex-session-adapter.ts";
 import { buildEvidenceBundle, type EvidenceBundle } from "../src/evidence-bundle.ts";
+import { OpenAIAnalysisProvider } from "../src/openai-analysis-provider.ts";
+import { generateSessionReport } from "./report-session.ts";
 import { resolveSessionFile } from "./report-session.ts";
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const PROJECT_ROOT = resolve(dirname(SCRIPT_PATH), "..");
 
+export type LiveAnalysisResult =
+  | {
+      kind: "success";
+      artifacts: AnalysisRunArtifacts;
+      summary: { rejectedCount: number; downgradedCount: number };
+    }
+  | {
+      kind: "failure";
+      failureKind: Exclude<AnalysisProviderResult["kind"], "success">;
+      message: string;
+      artifacts: AnalysisRunArtifacts;
+    };
+
+type Output = { write(value: string): unknown };
+
 export function generateDryRun(
   projectRoot: string,
   selector: string = "latest"
 ): { bundle: EvidenceBundle; serializedBundle: string; artifacts: AnalysisRunArtifacts } {
-  const canonicalRoot = realpathSync(projectRoot);
-  const sessionFile = resolveSessionFile(canonicalRoot, selector);
+  const { root, bundle } = loadEvidenceBundle(projectRoot, selector);
+  const serializedBundle = serializeJson(bundle);
+  const artifacts = persistAnalysisRun(root, bundle);
+  return { bundle, serializedBundle, artifacts };
+}
+
+export async function runLiveAnalysis(options: {
+  projectRoot: string;
+  selector?: string;
+  provider: AnalysisProvider;
+  now?: Date;
+}): Promise<LiveAnalysisResult> {
+  const selector = options.selector ?? "latest";
+  const { root, bundle } = loadEvidenceBundle(options.projectRoot, selector);
+  const now = options.now ?? new Date();
+  let providerResult: AnalysisProviderResult;
+
+  try {
+    providerResult = await options.provider.analyze(bundle);
+  } catch (error) {
+    providerResult = {
+      kind: "request_failed",
+      error: serializeError(error),
+      metadata: {
+        provider: "unknown",
+        model: "unknown",
+        reasoningEffort: "unknown",
+        store: false,
+        requestedAt: now.toISOString(),
+        completedAt: new Date().toISOString()
+      }
+    };
+  }
+
+  if (providerResult.kind !== "success") {
+    return persistFailure(root, bundle, selector, providerResult);
+  }
+
+  const parsedCandidate = AnalysisSchema.safeParse(providerResult.candidate);
+  if (!parsedCandidate.success) {
+    return persistFailure(root, bundle, selector, {
+      kind: "schema_invalid",
+      error: serializeError(parsedCandidate.error),
+      metadata: providerResult.metadata,
+      rawResponse: providerResult.rawResponse
+    }, providerResult.candidate);
+  }
+
+  const persisted = validateAndPersistAnalysisRun(
+    root,
+    bundle,
+    parsedCandidate.data,
+    now,
+    {
+      candidateAnalysis: providerResult.candidate,
+      providerResponse: providerResult.rawResponse,
+      metadata: runMetadata(bundle, selector, "completed", providerResult),
+      renderMarkdown: (analysis, summary, runId) =>
+        renderAnalysisReport(bundle, analysis, summary, runId)
+    }
+  );
+
+  return {
+    kind: "success",
+    artifacts: persisted.artifacts,
+    summary: {
+      rejectedCount: persisted.summary.rejectedCount,
+      downgradedCount: persisted.summary.downgradedCount
+    }
+  };
+}
+
+export async function runAnalyzeCommand(options: {
+  projectRoot: string;
+  args: string[];
+  env?: NodeJS.ProcessEnv;
+  stdout?: Output;
+  stderr?: Output;
+  providerFactory?: (apiKey: string) => AnalysisProvider;
+  now?: Date;
+}): Promise<number> {
+  const stdout = options.stdout ?? process.stdout;
+  const stderr = options.stderr ?? process.stderr;
+  try {
+    const { selector, dryRun } = parseArguments(options.args);
+    if (dryRun) {
+      const result = generateDryRun(options.projectRoot, selector);
+      stdout.write(result.serializedBundle);
+      stderr.write(`Bundle saved to ${displayPath(result.artifacts.bundlePath)}\n`);
+      return 0;
+    }
+
+    const apiKey = (
+      options.env === undefined
+        ? process.env.OPENAI_API_KEY
+        : options.env.OPENAI_API_KEY
+    )?.trim();
+    if (!apiKey) {
+      const fallback = generateSessionReport(options.projectRoot, selector);
+      stdout.write(
+        "OPENAI_API_KEY is not configured; live analysis is unavailable. Showing the deterministic report instead.\n\n"
+      );
+      stdout.write(`${fallback.markdown}\n`);
+      stdout.write(`Deterministic report saved to ${displayPath(fallback.reportPath)}\n`);
+      return 0;
+    }
+
+    const provider = options.providerFactory
+      ? options.providerFactory(apiKey)
+      : new OpenAIAnalysisProvider({ apiKey });
+    const result = await runLiveAnalysis({
+      projectRoot: options.projectRoot,
+      selector,
+      provider,
+      now: options.now
+    });
+    if (result.kind === "failure") {
+      stderr.write(
+        `Live analysis failed (${result.failureKind}): ${result.message}\nArtifacts saved to ${displayPath(result.artifacts.directory)}\n`
+      );
+      return 1;
+    }
+
+    stdout.write(`Report saved to ${displayPath(result.artifacts.reportPath ?? result.artifacts.directory)}\n`);
+    stdout.write(
+      `Validation: ${result.summary.rejectedCount} rejected, ${result.summary.downgradedCount} downgraded.\n`
+    );
+    return 0;
+  } catch (error) {
+    stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
+  }
+}
+
+function persistFailure(
+  root: string,
+  bundle: EvidenceBundle,
+  selector: string,
+  result: Exclude<AnalysisProviderResult, { kind: "success" }>,
+  candidate?: unknown
+): LiveAnalysisResult {
+  const message = failureMessage(result);
+  const artifacts = persistAnalysisRun(root, bundle, {
+    candidateAnalysis: candidate,
+    providerResponse: result.rawResponse,
+    providerError: failureDetails(result),
+    metadata: runMetadata(bundle, selector, "failed", result)
+  });
+  return { kind: "failure", failureKind: result.kind, message, artifacts };
+}
+
+function failureMessage(
+  result: Exclude<AnalysisProviderResult, { kind: "success" }>
+): string {
+  switch (result.kind) {
+    case "refusal":
+      return result.refusal;
+    case "incomplete":
+      return `Provider response was incomplete${result.reason ? `: ${result.reason}` : "."}`;
+    case "missing_parsed_output":
+      return result.message;
+    case "schema_invalid":
+    case "request_failed":
+      return result.error.message;
+  }
+}
+
+function failureDetails(
+  result: Exclude<AnalysisProviderResult, { kind: "success" }>
+): Record<string, unknown> {
+  switch (result.kind) {
+    case "refusal":
+      return { kind: result.kind, refusal: result.refusal };
+    case "incomplete":
+      return { kind: result.kind, reason: result.reason };
+    case "missing_parsed_output":
+      return { kind: result.kind, message: result.message };
+    case "schema_invalid":
+    case "request_failed":
+      return { kind: result.kind, error: result.error };
+  }
+}
+
+function runMetadata(
+  bundle: EvidenceBundle,
+  selector: string,
+  status: "completed" | "failed",
+  result: AnalysisProviderResult
+): Record<string, unknown> {
+  return {
+    schemaVersion: 1,
+    mode: "live",
+    status,
+    resultKind: result.kind,
+    selector,
+    sessionId: bundle.session.sessionId,
+    provider: result.metadata
+  };
+}
+
+function loadEvidenceBundle(
+  projectRoot: string,
+  selector: string
+): { root: string; bundle: EvidenceBundle } {
+  const root = realpathSync(projectRoot);
+  const sessionFile = resolveSessionFile(root, selector);
   if (!existsSync(sessionFile)) {
     throw new Error(`No recording found for ${selector} at ${sessionFile}`);
   }
@@ -26,37 +255,38 @@ export function generateDryRun(
   if (session.events.length === 0) {
     throw new Error(`No valid hook events found in ${session.sourcePath}`);
   }
-
-  const bundle = buildEvidenceBundle(session);
-  const serializedBundle = serializeJson(bundle);
-  const artifacts = persistAnalysisRun(canonicalRoot, bundle);
-  return { bundle, serializedBundle, artifacts };
+  return { root, bundle: buildEvidenceBundle(session) };
 }
 
-function parseArguments(args: string[]): { selector: string } {
+function parseArguments(args: string[]): { selector: string; dryRun: boolean } {
   const dryRunArguments = args.filter((argument) => argument === "--dry-run");
-  const selectors = args.filter((argument) => argument !== "--dry-run");
-  if (dryRunArguments.length !== 1 || selectors.length > 1) {
-    throw new Error("Usage: npm run analyze -- --dry-run [latest|session-id]");
+  const unknownFlags = args.filter(
+    (argument) => argument.startsWith("--") && argument !== "--dry-run"
+  );
+  const selectors = args.filter((argument) => !argument.startsWith("--"));
+  if (
+    dryRunArguments.length > 1 ||
+    unknownFlags.length > 0 ||
+    selectors.length > 1
+  ) {
+    throw new Error("Usage: npm run analyze -- [--dry-run] [latest|session-id]");
   }
-  return { selector: selectors[0] ?? "latest" };
+  return { selector: selectors[0] ?? "latest", dryRun: dryRunArguments.length === 1 };
 }
 
-function main(): void {
-  try {
-    const { selector } = parseArguments(process.argv.slice(2));
-    const result = generateDryRun(PROJECT_ROOT, selector);
-    process.stdout.write(result.serializedBundle);
-    process.stderr.write(
-      `Bundle saved to ${relative(process.cwd(), result.artifacts.bundlePath) || result.artifacts.bundlePath}\n`
-    );
-  } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 1;
-  }
+function displayPath(path: string): string {
+  return relative(process.cwd(), path) || path;
+}
+
+async function main(): Promise<void> {
+  process.exitCode = await runAnalyzeCommand({
+    projectRoot: PROJECT_ROOT,
+    args: process.argv.slice(2),
+    env: process.env
+  });
 }
 
 const invokedPath = process.argv[1];
 if (invokedPath && SCRIPT_PATH === resolve(invokedPath)) {
-  main();
+  void main();
 }

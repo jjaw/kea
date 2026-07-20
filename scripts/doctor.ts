@@ -7,8 +7,9 @@ import { readCodexSessionFile } from "../src/codex-session-adapter.ts";
 export const DEFAULT_RECENT_WINDOW_MS = 24 * 60 * 60 * 1_000;
 
 export type DoctorCheck = {
-  name: "node" | "hook" | "recording";
+  name: "node" | "hook" | "recording" | "api_key";
   ok: boolean;
+  required: boolean;
   message: string;
 };
 
@@ -49,6 +50,7 @@ export function runDoctor(options: {
   nodeVersion?: string;
   typeStripping?: boolean;
   recentWindowMs?: number;
+  apiKey?: string | null;
 }): DoctorResult {
   const launchDirectory = options.launchDirectory ?? options.projectRoot;
   const now = options.now ?? new Date();
@@ -60,9 +62,14 @@ export function runDoctor(options: {
   const checks = [
     checkNode(nodeVersion, typeStripping),
     checkHook(options.projectRoot, launchDirectory),
-    checkRecording(options.projectRoot, now, recentWindowMs)
+    checkRecording(options.projectRoot, now, recentWindowMs),
+    checkApiKey(
+      Object.prototype.hasOwnProperty.call(options, "apiKey")
+        ? options.apiKey
+        : process.env.OPENAI_API_KEY
+    )
   ];
-  return { ok: checks.every((check) => check.ok), checks };
+  return { ok: checks.filter((check) => check.required).every((check) => check.ok), checks };
 }
 
 function checkNode(version: string, typeStripping: boolean): DoctorCheck {
@@ -71,6 +78,7 @@ function checkNode(version: string, typeStripping: boolean): DoctorCheck {
   return {
     name: "node",
     ok: supportedVersion && typeStripping,
+    required: true,
     message:
       supportedVersion && typeStripping
         ? `Node ${version} supports type stripping.`
@@ -104,10 +112,11 @@ function checkHook(projectRoot: string, launchDirectory: string): DoctorCheck {
     return {
       name: "hook",
       ok: true,
+      required: true,
       message: `${commands.length} hook command(s) resolve from ${launchDirectory}.`
     };
   } catch (error) {
-    return { name: "hook", ok: false, message: errorMessage(error) };
+    return { name: "hook", ok: false, required: true, message: errorMessage(error) };
   }
 }
 
@@ -146,17 +155,36 @@ function checkRecording(
     return {
       name: "recording",
       ok: true,
+      required: true,
       message: `Latest recording parses (${session.events.length} events, modified ${modifiedAt.toISOString()}).`
     };
   } catch (error) {
-    return { name: "recording", ok: false, message: errorMessage(error) };
+    return {
+      name: "recording",
+      ok: false,
+      required: true,
+      message: errorMessage(error)
+    };
   }
+}
+
+function checkApiKey(apiKey: string | null | undefined): DoctorCheck {
+  const present = typeof apiKey === "string" && apiKey.trim() !== "";
+  return {
+    name: "api_key",
+    ok: present,
+    required: false,
+    message: present
+      ? "OPENAI_API_KEY is configured; live analysis is available."
+      : "OPENAI_API_KEY is not configured; capture, dry-run, and deterministic reports remain available, but live analysis is unavailable."
+  };
 }
 
 function main(): void {
   const result = runDoctor({ projectRoot: PROJECT_ROOT, launchDirectory: process.cwd() });
   for (const check of result.checks) {
-    process.stdout.write(`${check.ok ? "✓" : "✗"} ${check.name}: ${check.message}\n`);
+    const marker = check.ok ? "✓" : check.required ? "✗" : "!";
+    process.stdout.write(`${marker} ${check.name}: ${check.message}\n`);
   }
   process.exitCode = result.ok ? 0 : 1;
 }

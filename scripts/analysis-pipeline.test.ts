@@ -179,9 +179,11 @@ test("validator rejects bad citations and category evidence, downgrades bases, a
     ],
     codexContributions: [
       {
-        value: "Human-only claim",
-        basis: "explicit",
-        evidenceIds: ["E2"]
+        value: "Mixed human and tool claim",
+        basis: "inference",
+        evidenceIds: ["E2", "E3"],
+        confidence: "medium",
+        confidenceReason: "The candidate mixed allowed and forbidden sources."
       }
     ],
     reportedOutcome: {
@@ -272,6 +274,21 @@ test("validator accepts valid contradiction and enforces all outcome relationshi
   const valid = validateAnalysis(contradicted, bundle, "run-contradiction");
   assert.equal(valid.analysis.outcomeSupport, "contradicted");
 
+  const lifecycleOnly = goodAnalysis();
+  lifecycleOnly.independentlySupportedOutcome = {
+    value: "The session started",
+    basis: "observed",
+    evidenceIds: ["E1"]
+  };
+  lifecycleOnly.outcomeSupport = "independently_supported";
+  const lifecycleResult = validateAnalysis(
+    lifecycleOnly,
+    bundle,
+    "run-lifecycle-only"
+  );
+  assert.equal(lifecycleResult.analysis.independentlySupportedOutcome, null);
+  assert.equal(lifecycleResult.analysis.outcomeSupport, "unknown");
+
   const invalidReportedOnly = {
     ...contradicted,
     outcomeSupport: "reported_only" as const
@@ -309,6 +326,167 @@ test("validator accepts valid contradiction and enforces all outcome relationshi
   );
   assert.equal(unknownResult.analysis.independentlySupportedOutcome, null);
   assert.equal(unknownResult.analysis.outcomeSupport, "unknown");
+});
+
+test("attempt-only corroboration with a reported claim becomes reported_only and preserves the weak finding", () => {
+  const bundle = fixtureBundle();
+  const candidate = goodAnalysis();
+  candidate.reportedOutcome = {
+    value: "Tests now pass",
+    basis: "explicit",
+    evidenceIds: ["E6"]
+  };
+  candidate.independentlySupportedOutcome = {
+    value: "The test command was run successfully",
+    basis: "observed",
+    evidenceIds: ["E3"]
+  };
+  candidate.outcomeSupport = "independently_supported";
+
+  const result = validateAnalysis(candidate, bundle, "run-attempt-with-report");
+
+  assert.equal(result.analysis.outcomeSupport, "reported_only");
+  assert.equal(result.analysis.reportedOutcome?.value, "Tests now pass");
+  assert.equal(
+    result.analysis.independentlySupportedOutcome?.value,
+    "The test command was run successfully"
+  );
+  assert.equal(result.analysis.independentlySupportedOutcome?.basis, "unknown");
+  assert.deepEqual(result.analysis.independentlySupportedOutcome?.evidenceIds, [
+    "E3"
+  ]);
+  const action = result.summary.actions.find(
+    (entry) =>
+      entry.code === "outcome_support_attempt_only_to_reported_only"
+  );
+  assert.ok(action);
+  assert.equal(action.action, "downgraded");
+  assert.equal(action.target, "outcomeSupport");
+  assert.deepEqual(action.evidenceIds, ["E3"]);
+  assert.match(
+    action.reason,
+    /changed from independently_supported to reported_only/
+  );
+  assert.match(action.reason, /action was initiated but not what result occurred/);
+  assert.equal(
+    result.summary.actions.some(
+      (entry) =>
+        entry.action === "rejected" &&
+        (entry.target === "independentlySupportedOutcome" ||
+          entry.target === "outcomeSupport")
+    ),
+    false
+  );
+});
+
+test("attempt-only corroboration without a reported claim becomes unknown and preserves the weak finding", () => {
+  const bundle = fixtureBundle();
+  const candidate = goodAnalysis();
+  candidate.independentlySupportedOutcome = {
+    value: "The test command completed",
+    basis: "observed",
+    evidenceIds: ["E3"]
+  };
+  candidate.outcomeSupport = "contradicted";
+
+  const result = validateAnalysis(candidate, bundle, "run-attempt-without-report");
+
+  assert.equal(result.analysis.outcomeSupport, "unknown");
+  assert.equal(result.analysis.reportedOutcome, null);
+  assert.equal(
+    result.analysis.independentlySupportedOutcome?.value,
+    "The test command completed"
+  );
+  assert.equal(result.analysis.independentlySupportedOutcome?.basis, "unknown");
+  assert.deepEqual(result.analysis.independentlySupportedOutcome?.evidenceIds, [
+    "E3"
+  ]);
+  const action = result.summary.actions.find(
+    (entry) => entry.code === "outcome_support_attempt_only_to_unknown"
+  );
+  assert.ok(action);
+  assert.equal(action.action, "downgraded");
+  assert.deepEqual(action.evidenceIds, ["E3"]);
+  assert.match(
+    action.reason,
+    /changed from contradicted to unknown/
+  );
+  assert.match(action.reason, /action was initiated but not what result occurred/);
+  assert.equal(
+    result.summary.actions.some(
+      (entry) =>
+        entry.action === "rejected" &&
+        (entry.target === "independentlySupportedOutcome" ||
+          entry.target === "outcomeSupport")
+    ),
+    false
+  );
+});
+
+test("result-bearing evidence can corroborate outcomes while messages and lifecycle events cannot", async (t) => {
+  const bundle = fixtureBundle();
+  const supportedCases = [
+    {
+      name: "tool attempt plus tool result",
+      value: "The captured test run failed",
+      evidenceIds: ["E3", "E4"]
+    },
+    {
+      name: "tool result alone",
+      value: "The captured test run failed",
+      evidenceIds: ["E4"]
+    },
+    {
+      name: "repository-state Git snapshot",
+      value: "The repository ended with after.ts modified",
+      evidenceIds: ["E6.git"]
+    }
+  ];
+
+  for (const supportedCase of supportedCases) {
+    await t.test(supportedCase.name, () => {
+      const candidate = goodAnalysis();
+      candidate.independentlySupportedOutcome = {
+        value: supportedCase.value,
+        basis: "observed",
+        evidenceIds: supportedCase.evidenceIds
+      };
+      candidate.outcomeSupport = "independently_supported";
+      const result = validateAnalysis(
+        candidate,
+        bundle,
+        `run-${supportedCase.name.replaceAll(" ", "-")}`
+      );
+      assert.equal(result.analysis.outcomeSupport, "independently_supported");
+      assert.deepEqual(
+        result.analysis.independentlySupportedOutcome?.evidenceIds,
+        supportedCase.evidenceIds
+      );
+    });
+  }
+
+  const unsupportedCases = [
+    { name: "assistant message", evidenceIds: ["E6"] },
+    { name: "session event", evidenceIds: ["E1"] }
+  ];
+  for (const unsupportedCase of unsupportedCases) {
+    await t.test(`${unsupportedCase.name} alone`, () => {
+      const candidate = goodAnalysis();
+      candidate.independentlySupportedOutcome = {
+        value: "Outcome established",
+        basis: "observed",
+        evidenceIds: unsupportedCase.evidenceIds
+      };
+      candidate.outcomeSupport = "independently_supported";
+      const result = validateAnalysis(
+        candidate,
+        bundle,
+        `run-${unsupportedCase.name.replaceAll(" ", "-")}`
+      );
+      assert.equal(result.analysis.independentlySupportedOutcome, null);
+      assert.equal(result.analysis.outcomeSupport, "unknown");
+    });
+  }
 });
 
 test("persists bundle, validated analysis, and summary in unique private run scopes", () => {

@@ -1,5 +1,5 @@
 {
-  "name": "codex-observer-capture-spike",
+  "name": "kea",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,6 +12,7 @@
     "analyze": "node scripts/analyze-session.ts"
   },
   "dependencies": {
+    "openai": "^6.48.0",
     "zod": "^4.0.5"
   },
   "devDependencies": {

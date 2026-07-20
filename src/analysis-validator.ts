@@ -5,7 +5,12 @@ import {
   CandidateAnalysisSchema,
   CODEX_CONTRIBUTION_SOURCE_CLASSES,
   EXPLICIT_SOURCE_CLASSES,
+  formatSourceClasses,
+  HUMAN_INTERVENTION_SOURCE_CLASSES,
   OBSERVED_SOURCE_CLASSES,
+  REPORTED_OUTCOME_SOURCE_CLASSES,
+  RESULT_BEARING_OUTCOME_SOURCE_CLASSES,
+  TOOL_ATTEMPT_SOURCE_CLASSES,
   unknownFinding,
   type Analysis,
   type CandidateAnalysis,
@@ -15,9 +20,17 @@ import {
 } from "./analysis-definitions.ts";
 import type { EvidenceBundle, EvidenceItem } from "./evidence-bundle.ts";
 
+export const VALIDATION_ACTION_CODES = [
+  "outcome_support_attempt_only_to_reported_only",
+  "outcome_support_attempt_only_to_unknown"
+] as const;
+
+export type ValidationActionCode = (typeof VALIDATION_ACTION_CODES)[number];
+
 export const ValidationActionSchema = z
   .object({
     action: z.enum(["rejected", "downgraded"]),
+    code: z.enum(VALIDATION_ACTION_CODES).optional(),
     target: z.string().min(1),
     reason: z.string().min(1),
     evidenceIds: z.array(z.string())
@@ -48,14 +61,37 @@ type FindingOptions = {
   requiresKnownValue?: boolean;
 };
 
-const OBSERVED_SOURCES = new Set<SourceClass>(OBSERVED_SOURCE_CLASSES);
-const EXPLICIT_SOURCES = new Set<SourceClass>(EXPLICIT_SOURCE_CLASSES);
-const ACTIVITY_SOURCES = new Set<SourceClass>(ACTIVITY_SOURCE_CLASSES);
-const CODEX_CONTRIBUTION_SOURCES = new Set<SourceClass>(
-  CODEX_CONTRIBUTION_SOURCE_CLASSES
+export const VALIDATOR_SOURCE_CLASS_POLICIES = {
+  observedBasis: OBSERVED_SOURCE_CLASSES,
+  explicitBasis: EXPLICIT_SOURCE_CLASSES,
+  activityOutcome: ACTIVITY_SOURCE_CLASSES,
+  resultBearingOutcome: RESULT_BEARING_OUTCOME_SOURCE_CLASSES,
+  codexContribution: CODEX_CONTRIBUTION_SOURCE_CLASSES,
+  humanIntervention: HUMAN_INTERVENTION_SOURCE_CLASSES,
+  reportedOutcome: REPORTED_OUTCOME_SOURCE_CLASSES
+} as const;
+
+const OBSERVED_SOURCES = new Set<SourceClass>(
+  VALIDATOR_SOURCE_CLASS_POLICIES.observedBasis
 );
-const HUMAN_MESSAGE_SOURCES = new Set<SourceClass>(["human_message"]);
-const ASSISTANT_MESSAGE_SOURCES = new Set<SourceClass>(["assistant_message"]);
+const EXPLICIT_SOURCES = new Set<SourceClass>(
+  VALIDATOR_SOURCE_CLASS_POLICIES.explicitBasis
+);
+const ACTIVITY_SOURCES = new Set<SourceClass>(
+  VALIDATOR_SOURCE_CLASS_POLICIES.activityOutcome
+);
+const RESULT_BEARING_OUTCOME_SOURCES = new Set<SourceClass>(
+  VALIDATOR_SOURCE_CLASS_POLICIES.resultBearingOutcome
+);
+const CODEX_CONTRIBUTION_SOURCES = new Set<SourceClass>(
+  VALIDATOR_SOURCE_CLASS_POLICIES.codexContribution
+);
+const HUMAN_INTERVENTION_SOURCES = new Set<SourceClass>(
+  VALIDATOR_SOURCE_CLASS_POLICIES.humanIntervention
+);
+const REPORTED_OUTCOME_SOURCES = new Set<SourceClass>(
+  VALIDATOR_SOURCE_CLASS_POLICIES.reportedOutcome
+);
 
 export function validateAnalysis(
   candidate: unknown,
@@ -227,7 +263,7 @@ export function validateAnalysis(
   const humanInterventions = working.humanInterventions.flatMap(
     (finding, index) => {
       const validated = validateFinding(finding, `humanInterventions[${index}]`, {
-        allowedSourceClasses: HUMAN_MESSAGE_SOURCES,
+        allowedSourceClasses: HUMAN_INTERVENTION_SOURCES,
         requiresEvidence: true
       });
       return validated ? [validated] : [];
@@ -261,19 +297,25 @@ export function validateAnalysis(
   );
   const reportedOutcome = working.reportedOutcome
     ? validateFinding(working.reportedOutcome, "reportedOutcome", {
-        allowedSourceClasses: ASSISTANT_MESSAGE_SOURCES,
+        allowedSourceClasses: REPORTED_OUTCOME_SOURCES,
         requiresEvidence: true,
         requiresKnownValue: true
       })
     : null;
-  const independentlySupportedOutcome = working.independentlySupportedOutcome
+  const candidateHasResultBearingOutcomeEvidence =
+    working.independentlySupportedOutcome !== null &&
+    hasResultBearingOutcomeEvidence(
+      working.independentlySupportedOutcome,
+      evidenceById
+    );
+  let independentlySupportedOutcome = working.independentlySupportedOutcome
     ? validateFinding(
         working.independentlySupportedOutcome,
         "independentlySupportedOutcome",
         {
           allowedSourceClasses: ACTIVITY_SOURCES,
           requiresEvidence: true,
-          requiresKnownValue: true
+          requiresKnownValue: candidateHasResultBearingOutcomeEvidence
         }
       )
     : null;
@@ -299,17 +341,50 @@ export function validateAnalysis(
   });
 
   let outcomeSupport = working.outcomeSupport;
-  const inconsistentReason = outcomeConsistencyReason(
-    outcomeSupport,
-    reportedOutcome,
-    independentlySupportedOutcome
-  );
-  if (inconsistentReason !== null) {
-    downgrade(actions, "outcomeSupport", inconsistentReason, [
-      ...(reportedOutcome?.evidenceIds ?? []),
-      ...(independentlySupportedOutcome?.evidenceIds ?? [])
-    ]);
-    outcomeSupport = "unknown";
+  let attemptOnlyOutcomeSupportCorrected = false;
+  if (
+    (outcomeSupport === "independently_supported" ||
+      outcomeSupport === "contradicted") &&
+    independentlySupportedOutcome !== null &&
+    !hasResultBearingOutcomeEvidence(
+      independentlySupportedOutcome,
+      evidenceById
+    )
+  ) {
+    const originalOutcomeSupport = outcomeSupport;
+    const finalOutcomeSupport =
+      reportedOutcome === null ? "unknown" : "reported_only";
+    const evidenceIds = independentlySupportedOutcome.evidenceIds;
+    const basisWasDowngraded = independentlySupportedOutcome.basis !== "unknown";
+    independentlySupportedOutcome = asUnknownFinding(
+      independentlySupportedOutcome
+    );
+    downgrade(
+      actions,
+      "outcomeSupport",
+      `Outcome support changed from ${originalOutcomeSupport} to ${finalOutcomeSupport}. Cited evidence ${evidenceIds.join(", ")} contains no ${formatSourceClasses(RESULT_BEARING_OUTCOME_SOURCE_CLASSES)} evidence. A ${formatSourceClasses(TOOL_ATTEMPT_SOURCE_CLASSES)} proves an action was initiated but not what result occurred. The independently supported outcome finding was preserved${basisWasDowngraded ? " and its basis was downgraded to unknown" : " with its unknown basis"}.`,
+      evidenceIds,
+      finalOutcomeSupport === "reported_only"
+        ? "outcome_support_attempt_only_to_reported_only"
+        : "outcome_support_attempt_only_to_unknown"
+    );
+    outcomeSupport = finalOutcomeSupport;
+    attemptOnlyOutcomeSupportCorrected = true;
+  }
+
+  if (!attemptOnlyOutcomeSupportCorrected) {
+    const inconsistentReason = outcomeConsistencyReason(
+      outcomeSupport,
+      reportedOutcome,
+      independentlySupportedOutcome
+    );
+    if (inconsistentReason !== null) {
+      downgrade(actions, "outcomeSupport", inconsistentReason, [
+        ...(reportedOutcome?.evidenceIds ?? []),
+        ...(independentlySupportedOutcome?.evidenceIds ?? [])
+      ]);
+      outcomeSupport = "unknown";
+    }
   }
 
   const analysis = AnalysisSchema.parse({
@@ -405,6 +480,28 @@ function allSourcesAllowed(
   return evidence.every((item) => allowed.has(item.sourceClass));
 }
 
+function hasResultBearingOutcomeEvidence(
+  finding: CandidateFinding,
+  evidenceById: Map<string, EvidenceItem>
+): boolean {
+  return finding.evidenceIds.some((id) => {
+    const item = evidenceById.get(id);
+    return (
+      item !== undefined &&
+      RESULT_BEARING_OUTCOME_SOURCES.has(item.sourceClass)
+    );
+  });
+}
+
+function asUnknownFinding<T extends CandidateFinding>(finding: T): T {
+  const {
+    confidence: _confidence,
+    confidenceReason: _confidenceReason,
+    ...withoutConfidence
+  } = finding;
+  return { ...withoutConfidence, basis: "unknown" } as T;
+}
+
 function downgradeToInference<T extends CandidateFinding>(
   finding: T,
   target: string,
@@ -435,9 +532,16 @@ function downgrade(
   actions: ValidationSummary["actions"],
   target: string,
   reason: string,
-  evidenceIds: string[]
+  evidenceIds: string[],
+  code?: ValidationActionCode
 ): void {
-  actions.push({ action: "downgraded", target, reason, evidenceIds });
+  actions.push({
+    action: "downgraded",
+    ...(code ? { code } : {}),
+    target,
+    reason,
+    evidenceIds
+  });
 }
 
 function emptyAnalysis(): CandidateAnalysis {

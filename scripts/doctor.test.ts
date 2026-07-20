@@ -25,7 +25,8 @@ test("doctor passes supported Node, resolvable hooks, and a recent parsed record
     launchDirectory: root,
     now,
     nodeVersion: "22.6.0",
-    typeStripping: true
+    typeStripping: true,
+    apiKey: null
   });
 
   assert.equal(result.ok, true);
@@ -34,9 +35,41 @@ test("doctor passes supported Node, resolvable hooks, and a recent parsed record
     [
       ["node", true],
       ["hook", true],
-      ["recording", true]
+      ["recording", true],
+      ["api_key", false]
     ]
   );
+  assert.equal(result.checks.find((check) => check.name === "api_key")?.required, false);
+});
+
+test("doctor reports API-key presence without making it an offline readiness requirement", () => {
+  const root = doctorFixture();
+  const now = new Date("2026-07-19T20:00:00.000Z");
+  utimesSync(join(root, ".codex-observer", "latest", "events.jsonl"), now, now);
+
+  const missing = runDoctor({
+    projectRoot: root,
+    launchDirectory: root,
+    now,
+    nodeVersion: "22.6.0",
+    typeStripping: true,
+    apiKey: ""
+  });
+  assert.equal(missing.ok, true);
+  assert.equal(missing.checks.at(-1)?.ok, false);
+  assert.match(missing.checks.at(-1)?.message ?? "", /live analysis is unavailable/);
+
+  const configured = runDoctor({
+    projectRoot: root,
+    launchDirectory: root,
+    now,
+    nodeVersion: "22.6.0",
+    typeStripping: true,
+    apiKey: "test-key"
+  });
+  assert.equal(configured.ok, true);
+  assert.equal(configured.checks.at(-1)?.ok, true);
+  assert.match(configured.checks.at(-1)?.message ?? "", /live analysis is available/);
 });
 
 test("doctor reports old or malformed recordings without throwing", () => {
