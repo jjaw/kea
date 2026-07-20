@@ -128,12 +128,38 @@ Keep agent-specific formats behind adapters:
 - Hooks must fail open, add negligible overhead, and never prevent a Codex
   session from continuing.
 - No network or model calls may run inside Codex hooks.
-- Hooks may record activity or mark a completed session as pending analysis.
-- Analysis may be invoked through an explicit command or by a separate local
-  post-session orchestrator. Any orchestrator must remain outside the hook
-  execution path.
-- Preserve `npm run analyze` as the manual, debugging, and rerun interface even
-  after automatic handoff is added.
+- Codex `Stop` is a turn-scoped event, not a reliable session-end signal.
+  Never initiate one provider request for every `Stop`.
+- Hooks may record activity and mark a session as pending after a completed
+  turn. Any provider work must remain outside the hook execution path.
+- Analysis may be invoked manually or by a separate local orchestrator after a
+  quiet period.
+- Preserve the manual analysis command as the debugging, forced-analysis, and
+  rerun interface after automatic handoff is added.
+
+### Automatic analysis and report eligibility
+
+- Capture and report generation are separate. Kea may capture every Codex
+  session locally, but automatic provider analysis runs only for sessions that
+  satisfy deterministic report-eligibility rules.
+- Automatic analysis must require explicit project-level opt-in. Installing or
+  initializing Kea must not silently enable provider transmission.
+- A pending session must remain inactive for a configured quiet interval before
+  automatic eligibility is evaluated.
+- If newer activity appears during the quiet interval, the pending analysis is
+  superseded by the newer session state.
+- Automatic analysis must be deduplicated by session ID and sanitized
+  evidence-state hash. The same evidence state must not trigger repeated
+  provider calls.
+- A session that fails automatic eligibility makes no provider call, generates
+  no leadership report, and records a machine-readable skip reason.
+- Eligibility decisions must use deterministic structural evidence and must
+  not call a model.
+- Manual analysis may override automatic eligibility when the user explicitly
+  requests it.
+- The leadership-facing report index shows only the latest successfully
+  validated report for each eligible session. Historical analysis runs remain
+  available locally for auditing and reruns.
 
 ## Privacy and safety
 

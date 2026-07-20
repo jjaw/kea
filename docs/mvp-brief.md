@@ -576,40 +576,82 @@ Completed:
 
 Active:
 
-9. **Golden demo session.** Record a contained but natural session with a
-   legible arc:
+9. **Installable CLI and cross-project bootstrap.**
 
-       failing attempt
-           -> human correction or constraint
-           -> changed approach
-           -> verifiable result and Git state
+   Package Kea as a scoped public npm package with a `kea` executable.
 
-   Sanitize a copy, add a provenance note stating when it was recorded, what
-   was redacted, and who reviewed it, and commit it as the golden fixture.
-   Point the mocked-provider full-pipeline tests at it.
+   Implement:
+
+   - `kea init`;
+   - `kea hook`;
+   - `kea doctor`;
+   - `kea analyze`;
+   - `kea demo`.
+
+   `kea init` creates or merges project-local Codex hooks, adds local Kea
+   storage to `.gitignore`, writes project configuration, and obtains explicit
+   consent for automatic analysis.
+
+   Hooks invoke the installed package rather than requiring Kea source files
+   inside the consuming repository.
 
 Next:
 
-10. **Leader-facing HTML report.** Create one self-contained file with no
-    server or framework. Prioritize:
+10. **Leader-facing HTML report and local report inbox.**
 
-    1. a leadership summary and objective;
-    2. reported outcome versus independently supported outcome side by side;
-    3. the outcome-support verdict;
-    4. approaches and statuses as readable spans;
-    5. human interventions and turning points;
-    6. at most two leadership insights;
-    7. visible unknowns;
-    8. evidence-basis badges on every finding;
-    9. evidence chips that expand to sanitized captured excerpts;
-    10. a rejection, downgrade, and amendment audit box.
+    Generate one self-contained HTML report from validated analysis, validation
+    summary, and sanitized evidence.
 
-    The default view is leadership-readable. Detailed evidence remains
-    inspectable without dominating the page.
+    Maintain a static local report index that shows the latest validated report
+    for each eligible session. Historical runs remain in local audit storage.
 
-11. **README and demo package.** Finish quickstart, screenshot, architecture,
-    privacy explanation, how Codex was used to build Kea, and the three-minute
-    demo script.
+11. **Report eligibility and automatic one-shot handoff.**
+
+    Capture all sessions locally, but automatically analyze only sessions that
+    satisfy deterministic meaningful-activity rules.
+
+    Codex `Stop` is turn-scoped. It may only record activity and mark a session
+    pending.
+
+    A short-lived worker:
+
+    - waits for a quiet interval;
+    - exits if newer activity appears;
+    - evaluates report eligibility without a provider call;
+    - deduplicates by session ID and evidence-state hash;
+    - performs analysis only after explicit opt-in;
+    - writes the HTML report and updates the report index.
+
+    Do not implement a permanent daemon.
+
+12. **Sanitized reference fixture and credential-free demo.**
+
+    Record a real session through the installed cross-project workflow.
+
+    Commit:
+
+    - a sanitized recording;
+    - provenance documentation;
+    - mocked provider output;
+    - expected validator audit.
+
+    `kea demo` runs the real local pipeline against the fixture without an API
+    key and generates the leader-facing HTML report.
+
+13. **Clean-project acceptance, npm publication, and submission package.**
+
+    Install the packed tarball into a clean test repository and verify:
+
+    - initialization;
+    - hook trust and capture;
+    - eligibility filtering;
+    - automatic analysis;
+    - report generation;
+    - report index;
+    - credential-free demo.
+
+    Then complete npm publication, README, supported-platform notes, license,
+    screenshot, sample report, video, and Devpost submission.
 
 Stretch / post-hackathon:
 
