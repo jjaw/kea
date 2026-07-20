@@ -27,7 +27,7 @@ the primary reading experience.
 
 ## Current status
 
-Implemented and tested:
+Implemented and runtime-tested:
 
 - passive project-level Codex hooks (`SessionStart`, `UserPromptSubmit`,
   `PreToolUse`, `PostToolUse`, `Stop`) writing JSONL to
@@ -37,14 +37,18 @@ Implemented and tested:
 - Codex adapter producing a normalized Kea session with line-level evidence
   references;
 - deterministic analyzer and Markdown report (`npm run report`);
-- redaction, per-item truncation, evidence-bundle construction, and dry-run;
+- redaction, per-item truncation, complete evidence-corpus construction, and
+  dry-run;
 - shared analysis definitions and Zod schemas;
-- deterministic post-validation with persisted rejection and downgrade audit;
+- deterministic post-validation with persisted rejection, downgrade, and
+  amendment audit;
 - `AnalysisProvider` abstraction and OpenAI Responses API provider;
 - centralized GPT-5.6 provider configuration;
 - live `npm run analyze` for the latest or selected session;
 - run-scoped persistence of bundle, provider response, candidate analysis,
   validated analysis, validation summary, metadata, and Markdown report;
+- 512 KiB single-request eligibility measurement with complete-corpus
+  preservation and explicit `bundle_too_large` refusal;
 - graceful missing-key fallback;
 - doctor checks, mocked-provider tests, and live-pipeline tests;
 - package and hook branding renamed to Kea while retaining

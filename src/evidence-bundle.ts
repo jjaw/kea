@@ -4,7 +4,9 @@ import { SourceClassSchema, type SourceClass } from "./analysis-definitions.ts";
 import { redactJson, redactText } from "./redaction.ts";
 import { truncateHead, truncateHeadTail, utf8ByteLength } from "./truncation.ts";
 
-export const BUNDLE_MAX_BYTES = 128 * 1024;
+export const PROVIDER_REQUEST_BUDGET_BYTES = 512 * 1024;
+/** @deprecated Use PROVIDER_REQUEST_BUDGET_BYTES. */
+export const BUNDLE_MAX_BYTES = PROVIDER_REQUEST_BUDGET_BYTES;
 export const MESSAGE_MAX_BYTES = 2 * 1024;
 export const TOOL_INPUT_MAX_BYTES = 1 * 1024;
 export const TOOL_OUTPUT_HEAD_BYTES = 700;
@@ -81,6 +83,14 @@ export const EvidenceBundleSchema = z
 
 export type EvidenceBundle = z.infer<typeof EvidenceBundleSchema>;
 export type EvidenceItem = z.infer<typeof EvidenceItemSchema>;
+export type EvidenceCorpusStatus = {
+  serializedCorpusBytes: number;
+  requestBudgetBytes: number;
+  totalEvidenceCount: number;
+  retainedEvidenceCount: number;
+  omittedEvidenceCount: number;
+  eligibleForSingleRequest: boolean;
+};
 
 export function buildEvidenceBundle(session: NormalizedSession): EvidenceBundle {
   const evidence: EvidenceItem[] = [];
@@ -210,8 +220,23 @@ export function buildEvidenceBundle(session: NormalizedSession): EvidenceBundle 
     diagnostics
   };
 
-  enforceBundleCeiling(bundle);
   return EvidenceBundleSchema.parse(bundle);
+}
+
+export function measureEvidenceCorpus(
+  bundle: EvidenceBundle,
+  requestBudgetBytes: number = PROVIDER_REQUEST_BUDGET_BYTES
+): EvidenceCorpusStatus {
+  const serializedCorpusBytes = serializedBytes(bundle);
+  const totalEvidenceCount = bundle.evidence.length;
+  return {
+    serializedCorpusBytes,
+    requestBudgetBytes,
+    totalEvidenceCount,
+    retainedEvidenceCount: totalEvidenceCount,
+    omittedEvidenceCount: 0,
+    eligibleForSingleRequest: serializedCorpusBytes <= requestBudgetBytes
+  };
 }
 
 function appendGit(
@@ -275,41 +300,6 @@ function structuredErrorIndicators(
     indicators.push({ field: "error", value: truncateHead(redactText(response.error), 256) });
   }
   return indicators;
-}
-
-function enforceBundleCeiling(bundle: EvidenceBundle): void {
-  let omittedEvidence = 0;
-  let omittedDiagnostics = 0;
-  const prefix = "Bundle size ceiling reached; omitted ";
-  const updateDiagnostic = (): void => {
-    bundle.diagnostics = bundle.diagnostics.filter(
-      (diagnostic) => !diagnostic.startsWith(prefix)
-    );
-    bundle.diagnostics.push(
-      `${prefix}${omittedEvidence} trailing evidence item(s) and ${omittedDiagnostics} adapter diagnostic(s).`
-    );
-  };
-
-  while (serializedBytes(bundle) > BUNDLE_MAX_BYTES) {
-    if (bundle.evidence.length > 0) {
-      bundle.evidence.pop();
-      omittedEvidence += 1;
-    } else {
-      let diagnosticIndex = bundle.diagnostics.length - 1;
-      while (
-        diagnosticIndex >= 0 &&
-        bundle.diagnostics[diagnosticIndex]?.startsWith(prefix)
-      ) {
-        diagnosticIndex -= 1;
-      }
-      if (diagnosticIndex < 0) {
-        throw new Error("Bundle metadata exceeds the size ceiling");
-      }
-      bundle.diagnostics.splice(diagnosticIndex, 1);
-      omittedDiagnostics += 1;
-    }
-    updateDiagnostic();
-  }
 }
 
 function serializedBytes(bundle: EvidenceBundle): number {

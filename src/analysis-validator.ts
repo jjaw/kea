@@ -21,6 +21,7 @@ import {
 import type { EvidenceBundle, EvidenceItem } from "./evidence-bundle.ts";
 
 export const VALIDATION_ACTION_CODES = [
+  "turning_point_citations_completed",
   "outcome_support_attempt_only_to_reported_only",
   "outcome_support_attempt_only_to_unknown"
 ] as const;
@@ -29,7 +30,7 @@ export type ValidationActionCode = (typeof VALIDATION_ACTION_CODES)[number];
 
 export const ValidationActionSchema = z
   .object({
-    action: z.enum(["rejected", "downgraded"]),
+    action: z.enum(["rejected", "downgraded", "amended"]),
     code: z.enum(VALIDATION_ACTION_CODES).optional(),
     target: z.string().min(1),
     reason: z.string().min(1),
@@ -44,6 +45,7 @@ export const ValidationSummarySchema = z
     validatedAt: z.string().min(1),
     rejectedCount: z.number().int().nonnegative(),
     downgradedCount: z.number().int().nonnegative(),
+    amendedCount: z.number().int().nonnegative().default(0),
     actions: z.array(ValidationActionSchema)
   })
   .strict();
@@ -275,16 +277,28 @@ export function validateAnalysis(
     if (!validated) {
       return [];
     }
-    if (!validTurningPoint(validated, evidenceById, evidenceOrder)) {
+    const amended = amendTurningPointCitations(
+      validated,
+      target,
+      evidenceById,
+      evidenceOrder,
+      actions
+    );
+    const invalidReason = turningPointInvalidReason(
+      amended,
+      evidenceById,
+      evidenceOrder
+    );
+    if (invalidReason !== null) {
       reject(
         actions,
         target,
-        "Turning point requires cited, ordered before-and-after evidence and activity evidence on the after side.",
-        validated.evidenceIds
+        invalidReason,
+        amended.evidenceIds
       );
       return [];
     }
-    return [validated];
+    return [amended];
   });
   const codexContributions = working.codexContributions.flatMap(
     (finding, index) => {
@@ -405,35 +419,72 @@ export function validateAnalysis(
     validatedAt: now.toISOString(),
     rejectedCount: actions.filter((entry) => entry.action === "rejected").length,
     downgradedCount: actions.filter((entry) => entry.action === "downgraded").length,
+    amendedCount: actions.filter((entry) => entry.action === "amended").length,
     actions
   });
 
   return { analysis, summary };
 }
 
-function validTurningPoint(
+function amendTurningPointCitations(
+  finding: CandidateAnalysis["turningPoints"][number],
+  target: string,
+  evidenceById: Map<string, EvidenceItem>,
+  evidenceOrder: Map<string, number>,
+  actions: ValidationSummary["actions"]
+): CandidateAnalysis["turningPoints"][number] {
+  const canonicalIds = new Set(finding.evidenceIds);
+  const addedIds = [
+    ...finding.beforeEvidenceIds,
+    ...finding.afterEvidenceIds
+  ].filter(
+    (id, index, ids) =>
+      !canonicalIds.has(id) &&
+      ids.indexOf(id) === index &&
+      evidenceById.has(id) &&
+      evidenceOrder.has(id)
+  );
+  if (addedIds.length === 0) {
+    return finding;
+  }
+
+  const evidenceIds = [...new Set([...finding.evidenceIds, ...addedIds])].sort(
+    (left, right) =>
+      (evidenceOrder.get(left) as number) - (evidenceOrder.get(right) as number)
+  );
+  actions.push({
+    action: "amended",
+    code: "turning_point_citations_completed",
+    target,
+    reason: `Added temporal evidence missing from canonical citations: ${addedIds.join(", ")}.`,
+    evidenceIds: addedIds
+  });
+  return { ...finding, evidenceIds };
+}
+
+function turningPointInvalidReason(
   finding: CandidateAnalysis["turningPoints"][number],
   evidenceById: Map<string, EvidenceItem>,
   evidenceOrder: Map<string, number>
-): boolean {
+): string | null {
   if (
     finding.beforeEvidenceIds.length === 0 ||
     finding.afterEvidenceIds.length === 0
   ) {
-    return false;
+    return "Turning point requires nonempty beforeEvidenceIds and afterEvidenceIds.";
   }
 
-  const cited = new Set(finding.evidenceIds);
   const allTemporalIds = [
     ...finding.beforeEvidenceIds,
     ...finding.afterEvidenceIds
   ];
-  if (
-    allTemporalIds.some(
-      (id) => !cited.has(id) || !evidenceById.has(id) || !evidenceOrder.has(id)
-    )
-  ) {
-    return false;
+  const invalidTemporalIds = allTemporalIds.filter(
+    (id) => !evidenceById.has(id) || !evidenceOrder.has(id)
+  );
+  if (invalidTemporalIds.length > 0) {
+    return `Turning point cites nonexistent temporal evidence: ${[
+      ...new Set(invalidTemporalIds)
+    ].join(", ")}.`;
   }
 
   const beforeOrder = finding.beforeEvidenceIds.map(
@@ -443,11 +494,17 @@ function validTurningPoint(
     (id) => evidenceOrder.get(id) as number
   );
   const ordered = Math.max(...beforeOrder) < Math.min(...afterOrder);
+  if (!ordered) {
+    return "Turning point requires all before evidence to occur strictly before all after evidence.";
+  }
   const afterIncludesActivity = finding.afterEvidenceIds.some((id) => {
     const item = evidenceById.get(id);
     return item !== undefined && ACTIVITY_SOURCES.has(item.sourceClass);
   });
-  return ordered && afterIncludesActivity;
+  if (!afterIncludesActivity) {
+    return "Turning point requires activity evidence on the after side.";
+  }
+  return null;
 }
 
 function outcomeConsistencyReason(

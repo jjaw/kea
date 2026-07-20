@@ -82,14 +82,14 @@ Rules:
 
 Keep agent-specific formats behind adapters:
 
-    raw agent events
-        -> agent-specific adapter
-        -> stable Kea normalized session
+    raw events
+        -> agent adapter
+        -> normalized session
         -> complete sanitized evidence corpus
         -> bounded provider payload or payloads
-        -> analysis provider interface
-        -> validated structured analysis + validation summary
-        -> report renderer
+        -> provider
+        -> validated analysis + validation summary
+        -> renderer
 
 - Codex payload knowledge remains inside the Codex capture and adapter
   boundary. Normalized-session, analysis, validation, and rendering code must

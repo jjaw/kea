@@ -16,10 +16,12 @@ import {
 import { validateAnalysis } from "../src/analysis-validator.ts";
 import { normalizeCodexSession } from "../src/codex-session-adapter.ts";
 import {
-  BUNDLE_MAX_BYTES,
   buildEvidenceBundle,
-  EvidenceBundleSchema
+  EvidenceBundleSchema,
+  measureEvidenceCorpus,
+  PROVIDER_REQUEST_BUDGET_BYTES
 } from "../src/evidence-bundle.ts";
+import { renderAnalysisReport } from "../src/analysis-report.ts";
 import { redactText } from "../src/redaction.ts";
 import { truncateHead, truncateHeadTail, utf8ByteLength } from "../src/truncation.ts";
 
@@ -87,6 +89,18 @@ test("builds ordered, single-source evidence with stable IDs and structural fact
     { field: "error", value: "tests failed" }
   ]);
   assert.doesNotMatch(JSON.stringify(bundle), /objective|turning point|human direction/i);
+  const evidenceIds = new Set(bundle.evidence.map((item) => item.id));
+  assert.equal(bundle.evidence[0]?.id, "E1");
+  assert.equal(bundle.evidence.at(-1)?.id, "E6.git");
+  assert.equal(
+    bundle.evidence.every(
+      (item) =>
+        item.structuralFacts.matchedEvidenceId === undefined ||
+        evidenceIds.has(item.structuralFacts.matchedEvidenceId)
+    ),
+    true
+  );
+  assert.deepEqual(bundle, fixtureBundle());
 
   const duplicateIds = structuredClone(bundle);
   if (duplicateIds.evidence[1]) {
@@ -95,7 +109,7 @@ test("builds ordered, single-source evidence with stable IDs and structural fact
   assert.equal(EvidenceBundleSchema.safeParse(duplicateIds).success, false);
 });
 
-test("redacts before truncating content and enforces the whole-bundle ceiling", () => {
+test("ordinary corpus retains every item while preserving redaction and per-item truncation", () => {
   const secret = "API_KEY=super-secret-value";
   const records = Array.from({ length: 90 }, (_, index) =>
     record("UserPromptSubmit", {
@@ -109,12 +123,52 @@ test("redacts before truncating content and enforces the whole-bundle ceiling", 
     normalizeCodexSession(records, "/recordings/large.jsonl")
   );
   const serialized = `${JSON.stringify(bundle, null, 2)}\n`;
+  const status = measureEvidenceCorpus(bundle);
 
-  assert.ok(utf8ByteLength(serialized) <= BUNDLE_MAX_BYTES);
+  assert.ok(utf8ByteLength(serialized) <= PROVIDER_REQUEST_BUDGET_BYTES);
+  assert.equal(bundle.evidence.length, 90);
+  assert.equal(bundle.evidence[0]?.id, "E1");
+  assert.equal(bundle.evidence.at(-1)?.id, "E90");
+  assert.deepEqual(status, {
+    serializedCorpusBytes: utf8ByteLength(serialized),
+    requestBudgetBytes: PROVIDER_REQUEST_BUDGET_BYTES,
+    totalEvidenceCount: 90,
+    retainedEvidenceCount: 90,
+    omittedEvidenceCount: 0,
+    eligibleForSingleRequest: true
+  });
   assert.doesNotMatch(serialized, /super-secret-value/);
   assert.match(serialized, /\[REDACTED:env-secret\]/);
   assert.match(serialized, /…\[truncated [\d,]+ bytes\]/);
-  assert.match(serialized, /Bundle size ceiling reached/);
+});
+
+test("oversized corpus is measured but never shortened", () => {
+  const records = Array.from({ length: 300 }, (_, index) =>
+    record("UserPromptSubmit", {
+      hook_event_name: "UserPromptSubmit",
+      session_id: "oversized-session",
+      turn_id: `turn-${index}`,
+      prompt: "x".repeat(2500)
+    })
+  ).join("\n");
+
+  const first = buildEvidenceBundle(
+    normalizeCodexSession(records, "/recordings/oversized.jsonl")
+  );
+  const second = buildEvidenceBundle(
+    normalizeCodexSession(records, "/recordings/oversized.jsonl")
+  );
+  const status = measureEvidenceCorpus(first);
+
+  assert.equal(first.evidence.length, 300);
+  assert.equal(first.evidence[0]?.id, "E1");
+  assert.equal(first.evidence.at(-1)?.id, "E300");
+  assert.equal(status.totalEvidenceCount, 300);
+  assert.equal(status.retainedEvidenceCount, 300);
+  assert.equal(status.omittedEvidenceCount, 0);
+  assert.equal(status.eligibleForSingleRequest, false);
+  assert.ok(status.serializedCorpusBytes > PROVIDER_REQUEST_BUDGET_BYTES);
+  assert.deepEqual(first, second);
 });
 
 test("strict analysis schema enforces confidence and shared enum semantics", () => {
@@ -142,6 +196,121 @@ test("strict analysis schema enforces confidence and shared enum semantics", () 
   );
   assert.match(APPROACH_STATUS_SEMANTICS, /success is NOT implied/);
   assert.match(OUTCOME_SUPPORT_SEMANTICS, /mutually|reported_only|contradicted/);
+});
+
+test("validator amends incomplete canonical turning-point citations in bundle order", () => {
+  const bundle = turningPointBundle();
+  const candidate = goodAnalysis();
+  candidate.turningPoints = [
+    {
+      value: "Compiler failures led to focused fixes and a passing rerun.",
+      basis: "inference",
+      evidenceIds: ["E56", "E57", "E58", "E60"],
+      beforeEvidenceIds: ["E55", "E56"],
+      afterEvidenceIds: ["E57", "E58", "E59", "E60"],
+      confidence: "high",
+      confidenceReason: "The fixes and rerun follow the captured failures."
+    }
+  ];
+
+  const result = validateAnalysis(
+    candidate,
+    bundle,
+    "run-turning-amendment",
+    new Date("2026-07-20T18:00:00.000Z")
+  );
+
+  assert.equal(result.analysis.turningPoints.length, 1);
+  assert.deepEqual(result.analysis.turningPoints[0]?.evidenceIds, [
+    "E55",
+    "E56",
+    "E57",
+    "E58",
+    "E59",
+    "E60"
+  ]);
+  assert.equal(result.summary.rejectedCount, 0);
+  assert.equal(result.summary.downgradedCount, 0);
+  assert.equal(result.summary.amendedCount, 1);
+  const amendment = result.summary.actions[0];
+  assert.equal(amendment?.action, "amended");
+  assert.equal(amendment?.code, "turning_point_citations_completed");
+  assert.deepEqual(amendment?.evidenceIds, ["E55", "E59"]);
+
+  const report = renderAnalysisReport(
+    bundle,
+    result.analysis,
+    result.summary,
+    "run-turning-amendment"
+  );
+  assert.match(
+    report,
+    /\*\*Evidence IDs:\*\* `E55`, `E56`, `E57`, `E58`, `E59`, `E60`/
+  );
+  assert.match(report, /\*\*Amended:\*\* 1/);
+});
+
+test("validator retains substantive turning-point rejection rules", async (t) => {
+  const bundle = turningPointBundle();
+  const cases = [
+    {
+      name: "nonexistent temporal ID",
+      beforeEvidenceIds: ["E55"],
+      afterEvidenceIds: ["E999"],
+      evidenceIds: ["E55"],
+      reason: /nonexistent temporal evidence: E999/
+    },
+    {
+      name: "empty before side",
+      beforeEvidenceIds: [],
+      afterEvidenceIds: ["E57"],
+      evidenceIds: ["E57"],
+      reason: /nonempty beforeEvidenceIds and afterEvidenceIds/
+    },
+    {
+      name: "empty after side",
+      beforeEvidenceIds: ["E55"],
+      afterEvidenceIds: [],
+      evidenceIds: ["E55"],
+      reason: /nonempty beforeEvidenceIds and afterEvidenceIds/
+    },
+    {
+      name: "invalid temporal ordering",
+      beforeEvidenceIds: ["E58"],
+      afterEvidenceIds: ["E57"],
+      evidenceIds: ["E57", "E58"],
+      reason: /strictly before all after evidence/
+    },
+    {
+      name: "no after-side activity",
+      beforeEvidenceIds: ["E55"],
+      afterEvidenceIds: ["E56"],
+      evidenceIds: ["E55", "E56"],
+      reason: /activity evidence on the after side/
+    }
+  ];
+
+  for (const testCase of cases) {
+    await t.test(testCase.name, () => {
+      const candidate = goodAnalysis();
+      candidate.turningPoints = [
+        {
+          value: "Candidate causal claim",
+          basis: "inference",
+          evidenceIds: testCase.evidenceIds,
+          beforeEvidenceIds: testCase.beforeEvidenceIds,
+          afterEvidenceIds: testCase.afterEvidenceIds,
+          confidence: "medium",
+          confidenceReason: "Candidate temporal evidence."
+        }
+      ];
+      const result = validateAnalysis(candidate, bundle, `run-${testCase.name}`);
+      assert.equal(result.analysis.turningPoints.length, 0);
+      assert.equal(result.summary.rejectedCount, 1);
+      assert.equal(result.summary.amendedCount, 0);
+      assert.match(result.summary.actions[0]?.reason ?? "", testCase.reason);
+    });
+  }
 });
 
 test("validator rejects bad citations and category evidence, downgrades bases, and audits every action", () => {
@@ -535,6 +704,68 @@ test("persists bundle, validated analysis, and summary in unique private run sco
 function fixtureBundle() {
   return buildEvidenceBundle(
     normalizeCodexSession(fixtureJsonl(), "/recordings/events.jsonl")
+  );
+}
+
+function turningPointBundle() {
+  const records = Array.from({ length: 54 }, (_, index) =>
+    record("UserPromptSubmit", {
+      hook_event_name: "UserPromptSubmit",
+      session_id: "turning-session",
+      turn_id: `turn-${index + 1}`,
+      prompt: `Context ${index + 1}`
+    })
+  );
+  records.push(
+    record("UserPromptSubmit", {
+      hook_event_name: "UserPromptSubmit",
+      session_id: "turning-session",
+      turn_id: "turn-55",
+      prompt: "Run the typecheck"
+    }),
+    record("UserPromptSubmit", {
+      hook_event_name: "UserPromptSubmit",
+      session_id: "turning-session",
+      turn_id: "turn-56",
+      prompt: "The typecheck failed"
+    }),
+    record("PreToolUse", {
+      hook_event_name: "PreToolUse",
+      session_id: "turning-session",
+      turn_id: "turn-57",
+      tool_name: "apply_patch",
+      tool_use_id: "tool-57",
+      tool_input: { patch: "fix types" }
+    }),
+    record("PostToolUse", {
+      hook_event_name: "PostToolUse",
+      session_id: "turning-session",
+      turn_id: "turn-57",
+      tool_name: "apply_patch",
+      tool_use_id: "tool-57",
+      tool_input: { patch: "fix types" },
+      tool_response: { success: true }
+    }),
+    record("PreToolUse", {
+      hook_event_name: "PreToolUse",
+      session_id: "turning-session",
+      turn_id: "turn-59",
+      tool_name: "Bash",
+      tool_use_id: "tool-59",
+      tool_input: { command: "npm run typecheck" }
+    }),
+    record("PostToolUse", {
+      hook_event_name: "PostToolUse",
+      session_id: "turning-session",
+      turn_id: "turn-59",
+      tool_name: "Bash",
+      tool_use_id: "tool-59",
+      tool_input: { command: "npm run typecheck" },
+      tool_response: { exit_code: 0 }
+    })
+  );
+  return buildEvidenceBundle(
+    normalizeCodexSession(records.join("\n"), "/recordings/turning.jsonl")
   );
 }
 

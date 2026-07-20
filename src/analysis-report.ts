@@ -73,11 +73,12 @@ export function renderAnalysisReport(
     `- **Validated at:** ${summary.validatedAt}`,
     `- **Rejected:** ${summary.rejectedCount}`,
     `- **Downgraded:** ${summary.downgradedCount}`,
+    `- **Amended:** ${summary.amendedCount}`,
     `- **Audit entries:** ${summary.actions.length}`,
     ""
   );
   if (summary.actions.length === 0) {
-    lines.push("No rejection or downgrade was required.");
+    lines.push("No rejection, downgrade, or amendment was required.");
   } else {
     summary.actions.forEach((action, index) => {
       lines.push(

@@ -53,8 +53,13 @@ test("offline dry-run saves exactly the bundle it returns without analysis artif
 
   assert.equal(readFileSync(result.artifacts.bundlePath, "utf8"), result.serializedBundle);
   assert.deepEqual(JSON.parse(result.serializedBundle), result.bundle);
+  assert.equal(result.corpusStatus.totalEvidenceCount, 1);
+  assert.equal(result.corpusStatus.retainedEvidenceCount, 1);
+  assert.equal(result.corpusStatus.omittedEvidenceCount, 0);
+  assert.equal(result.corpusStatus.eligibleForSingleRequest, true);
   assert.equal(result.artifacts.analysisPath, null);
   assert.equal(result.artifacts.validationSummaryPath, null);
+  assert.ok(result.artifacts.metadataPath);
 });
 
 test("live pipeline re-validates, deterministically validates, persists one run, and renders Markdown", async () => {
@@ -76,6 +81,7 @@ test("live pipeline re-validates, deterministically validates, persists one run,
   if (result.kind !== "success") return;
   assert.equal(result.summary.rejectedCount, 1);
   assert.ok(result.summary.downgradedCount >= 1);
+  assert.equal(result.summary.amendedCount, 0);
   for (const path of [
     result.artifacts.bundlePath,
     result.artifacts.candidateAnalysisPath,
@@ -240,6 +246,92 @@ test("missing API key prints deterministic fallback, exits zero, and creates no 
   assert.equal(existsSync(join(root, ".codex-observer", "analysis-runs")), false);
 });
 
+test("oversized live run preserves the corpus, skips the provider, and persists bundle_too_large", async () => {
+  const root = oversizedSessionFixture("session-oversized");
+  let providerCalls = 0;
+  const result = await runLiveAnalysis({
+    projectRoot: root,
+    selector: "session-oversized",
+    provider: {
+      analyze: async () => {
+        providerCalls += 1;
+        return {
+          kind: "request_failed",
+          error: { name: "Error", message: "must not run" },
+          metadata: providerMetadata()
+        };
+      }
+    }
+  });
+
+  assert.equal(result.kind, "failure");
+  if (result.kind !== "failure") return;
+  assert.equal(result.failureKind, "bundle_too_large");
+  assert.equal(providerCalls, 0);
+  assert.match(result.message, /Complete sanitized session evidence/);
+  assert.match(result.message, /Chronological segmentation with complete coverage/);
+  assert.equal(result.artifacts.analysisPath, null);
+  assert.equal(result.artifacts.validationSummaryPath, null);
+  assert.equal(result.artifacts.reportPath, null);
+
+  const bundle = JSON.parse(readFileSync(result.artifacts.bundlePath, "utf8"));
+  const metadata = JSON.parse(
+    readFileSync(result.artifacts.metadataPath ?? "", "utf8")
+  );
+  const diagnostic = JSON.parse(
+    readFileSync(result.artifacts.providerErrorPath ?? "", "utf8")
+  );
+  assert.equal(bundle.evidence.length, 300);
+  assert.equal(bundle.evidence[0]?.id, "E1");
+  assert.equal(bundle.evidence.at(-1)?.id, "E300");
+  assert.equal(metadata.resultKind, "bundle_too_large");
+  assert.equal(metadata.corpus.totalEvidenceCount, 300);
+  assert.equal(metadata.corpus.retainedEvidenceCount, 300);
+  assert.equal(metadata.corpus.omittedEvidenceCount, 0);
+  assert.equal(metadata.corpus.eligibleForSingleRequest, false);
+  assert.equal(metadata.diagnostic.code, "bundle_too_large");
+  assert.equal(diagnostic.kind, "bundle_too_large");
+  assert.equal(
+    diagnostic.requiredCapability,
+    "complete_coverage_chronological_segmentation"
+  );
+});
+
+test("oversized analyze command explains the handled refusal", async () => {
+  const root = oversizedSessionFixture("session-oversized-command");
+  const stdout = bufferOutput();
+  const stderr = bufferOutput();
+  let providerCalls = 0;
+  const exitCode = await runAnalyzeCommand({
+    projectRoot: root,
+    args: ["session-oversized-command"],
+    env: { OPENAI_API_KEY: "test-api-key" },
+    stdout,
+    stderr,
+    providerFactory: () => ({
+      analyze: async () => {
+        providerCalls += 1;
+        return {
+          kind: "request_failed",
+          error: { name: "Error", message: "must not run" },
+          metadata: providerMetadata()
+        };
+      }
+    })
+  });
+
+  assert.equal(exitCode, 1);
+  assert.equal(providerCalls, 0);
+  assert.equal(stdout.value, "");
+  assert.match(stderr.value, /Live analysis failed \(bundle_too_large\)/);
+  assert.match(stderr.value, /Complete sanitized session evidence/);
+  assert.match(stderr.value, /No evidence was omitted/);
+  assert.match(
+    stderr.value,
+    /Chronological segmentation with complete coverage is required/
+  );
+});
+
 test("live analyze command uses latest by default and prints report path plus validation summary", async () => {
   const root = sessionFixture("session-latest");
   const stdout = bufferOutput();
@@ -266,7 +358,10 @@ test("live analyze command uses latest by default and prints report path plus va
   assert.equal(exitCode, 0);
   assert.equal(receivedApiKey, "test-api-key");
   assert.match(stdout.value, /Report saved to .*report\.md/);
-  assert.match(stdout.value, /Validation: 1 rejected, \d+ downgraded\./);
+  assert.match(
+    stdout.value,
+    /Validation: 1 rejected, \d+ downgraded, 0 amended\./
+  );
   assert.equal(stderr.value, "");
 });
 
@@ -334,6 +429,26 @@ function sessionFixture(sessionId: string): string {
   ];
   writeFileSync(join(sessionDirectory, "events.jsonl"), `${records.join("\n")}\n`, "utf8");
   symlinkSync(join("sessions", sessionId), join(root, ".codex-observer", "latest"));
+  return root;
+}
+
+function oversizedSessionFixture(sessionId: string): string {
+  const root = mkdtempSync(join(tmpdir(), "kea-oversized-live-"));
+  const sessionDirectory = join(root, ".codex-observer", "sessions", sessionId);
+  mkdirSync(sessionDirectory, { recursive: true });
+  const records = Array.from({ length: 300 }, (_, index) =>
+    record(sessionId, "UserPromptSubmit", {
+      hook_event_name: "UserPromptSubmit",
+      session_id: sessionId,
+      turn_id: `turn-${index}`,
+      prompt: "x".repeat(2500)
+    })
+  );
+  writeFileSync(
+    join(sessionDirectory, "events.jsonl"),
+    `${records.join("\n")}\n`,
+    "utf8"
+  );
   return root;
 }
 
