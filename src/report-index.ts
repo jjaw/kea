@@ -65,18 +65,21 @@ export function renderStaticReportIndex(
     header { padding:44px 0 20px; }
     h1,h2 { line-height:1.2; margin:.2rem 0 .7rem; }
     h1 { font-size:clamp(2rem,6vw,3.4rem); letter-spacing:-.04em; }
-    .lede,.meta,.explanation { color:var(--muted); }
+    .lede,.meta,.explanation,.session-reference,.evaluated { color:var(--muted); }
     .inbox { display:grid; gap:14px; padding:10px 0 54px; }
     .entry { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; }
     .entry.full_report { border-left:5px solid var(--accent); }
     .entry.blocked { border-left:5px solid var(--warn); }
     .entry.analysis_failed { border-left:5px solid var(--danger); }
     .badge { display:inline-block; border-radius:999px; padding:.2rem .6rem; background:var(--soft); color:var(--accent); font-size:.74rem; font-weight:800; letter-spacing:.04em; text-transform:uppercase; }
+    .session-reference,.evaluated { margin:.2rem 0; }
+    .primary-action { display:inline-block; margin:.35rem 0 .7rem; }
     a { color:var(--accent); font-weight:800; text-underline-offset:.2em; }
     dl { display:grid; grid-template-columns:max-content 1fr; gap:.25rem .8rem; margin:.8rem 0; }
     dt { font-weight:750; } dd { margin:0; overflow-wrap:anywhere; }
     .unavailable { color:var(--danger); font-weight:750; }
-    .receipt { border-top:1px solid var(--line); margin-top:12px; padding-top:8px; }
+    .technical-details { border-top:1px solid var(--line); margin-top:12px; padding-top:8px; }
+    .technical-details h3 { font-size:1rem; margin:1rem 0 .35rem; }
     summary { cursor:pointer; color:var(--accent); font-weight:750; }
     @media (max-width:640px) { main,header { width:min(100% - 20px,1040px); } header { padding-top:28px; } dl { grid-template-columns:1fr; } }
   </style>
@@ -85,8 +88,8 @@ export function renderStaticReportIndex(
   <header>
     <p class="badge">Kea</p>
     <h1>Report inbox</h1>
-    <p class="lede">Latest validated reports and deterministic session dispositions.</p>
-    <p class="meta">Generated ${escapeHtml(generatedAt)} · ${entries.length} latest disposition${entries.length === 1 ? "" : "s"}</p>
+    <p class="lede">Recorded development sessions and their latest report status.</p>
+    <p class="meta">Generated ${escapeHtml(formatUtcTimestamp(generatedAt))} · ${entries.length} recorded session${entries.length === 1 ? "" : "s"}</p>
   </header>
   <main class="inbox">${cards}</main>
 </body>
@@ -134,10 +137,11 @@ function renderDisposition(
   disposition: FinalSessionDisposition,
   availableHtmlRunIds: ReadonlySet<string>
 ): string {
-  const session = disposition.receipt.sessionId ?? "Session identity unavailable";
-  const common = `<span class="badge">${escapeHtml(disposition.kind)}</span>
-    <h2>${escapeHtml(session)}</h2>
-    <dl><dt>Evaluated</dt><dd>${escapeHtml(disposition.receipt.evaluatedAt)}</dd><dt>Reason</dt><dd>${escapeHtml(disposition.reason)}</dd></dl>`;
+  const common = (label: string, explanation: string) => `<span class="badge">${escapeHtml(label)}</span>
+    <h2>Development session</h2>
+    <p class="session-reference">${renderSessionReference(disposition.receipt.sessionId)}</p>
+    <p class="evaluated">Evaluated ${escapeHtml(formatUtcTimestamp(disposition.receipt.evaluatedAt))}</p>
+    <p class="explanation">${escapeHtml(explanation)}</p>`;
 
   switch (disposition.kind) {
     case "full_report": {
@@ -148,22 +152,34 @@ function renderDisposition(
       );
       const report =
         htmlReferenced && htmlExists
-          ? `<p><a href="${reportHref(disposition.validatedRun.runId)}">Open leadership report</a></p>`
+          ? `<p><a class="primary-action" href="${reportHref(disposition.validatedRun.runId)}">Open leadership report</a></p>`
           : '<p class="unavailable">HTML report unavailable</p>';
-      return `<article class="entry full_report">${common}${report}<p class="explanation">A validated analysis run is available for this evidence state.</p></article>`;
+      return `<article class="entry full_report">${common("Full report ready", "A validated, evidence-backed analysis is ready.")}${report}${renderTechnicalDetails(disposition)}</article>`;
     }
     case "activity_only":
-      return `<article class="entry activity_only">${common}<p class="explanation">No provider-generated session narrative was produced because the structural eligibility threshold was not met.</p>${renderReceipt(disposition)}</article>`;
+      return `<article class="entry activity_only">${common("Activity receipt", "A deterministic activity receipt is available. No full provider-generated narrative was produced.")}${renderTechnicalDetails(disposition)}</article>`;
     case "blocked":
-      return `<article class="entry blocked">${common}<p class="explanation">Automatic full analysis could not proceed under the conditions evaluated at this time. This is not a permanent fact about the session.</p>${renderReceipt(disposition)}</article>`;
+      return `<article class="entry blocked">${common("Analysis blocked", "Full analysis could not proceed under the conditions evaluated at that time. The session can be evaluated again if conditions change.")}${renderTechnicalDetails(disposition)}</article>`;
     case "analysis_failed":
-      return `<article class="entry analysis_failed">${common}<p class="explanation">Analysis did not produce a validated report. This entry is a diagnostic state.</p>${disposition.analysisRun ? `<p class="meta">Safe run reference: ${escapeHtml(disposition.analysisRun.runId)}</p>` : ""}${renderReceipt(disposition)}</article>`;
+      return `<article class="entry analysis_failed">${common("Analysis failed", "An analysis attempt did not produce a validated report. This is a diagnostic state; technical details are available below.")}${renderTechnicalDetails(disposition)}</article>`;
   }
 }
 
-function renderReceipt(disposition: FinalSessionDisposition): string {
+function renderTechnicalDetails(disposition: FinalSessionDisposition): string {
   const receipt = disposition.receipt;
-  return `<details class="receipt"><summary>Structural receipt</summary><dl>
+  const runId =
+    disposition.kind === "full_report"
+      ? disposition.validatedRun.runId
+      : disposition.kind === "analysis_failed"
+        ? disposition.analysisRun?.runId
+        : undefined;
+  return `<details class="technical-details"><summary>Technical details</summary><dl>
+    <dt>Session identity</dt><dd>${escapeHtml(receipt.sessionId ?? "Unavailable")}</dd>
+    <dt>Disposition</dt><dd>${escapeHtml(disposition.kind)}</dd>
+    <dt>Reason</dt><dd>${escapeHtml(disposition.reason)}</dd>
+    <dt>Evaluation timestamp</dt><dd>${escapeHtml(receipt.evaluatedAt)}</dd>
+    ${runId === undefined ? "" : `<dt>Analysis run</dt><dd>${escapeHtml(runId)}</dd>`}
+  </dl><h3>Structural receipt</h3><dl>
     <dt>Evidence state</dt><dd>${escapeHtml(receipt.evidenceStateHash)}</dd>
     <dt>Last activity</dt><dd>${escapeHtml(receipt.lastObservedActivityAt ?? "Unavailable")}</dd>
     <dt>Evidence items</dt><dd>${escapeHtml(receipt.corpus.totalEvidenceCount)}</dd>
@@ -173,6 +189,39 @@ function renderReceipt(disposition: FinalSessionDisposition): string {
     <dt>Git snapshots</dt><dd>${escapeHtml(receipt.counts.gitSnapshots)}</dd>
     <dt>Structured-error results</dt><dd>${escapeHtml(receipt.counts.observableStructuredErrorResults)}</dd>
   </dl></details>`;
+}
+
+function renderSessionReference(sessionId: string | null): string {
+  if (sessionId === null) return "Session identity unavailable";
+  const characters = [...sessionId];
+  const shortId = characters.slice(0, 8).join("");
+  return `Session ${escapeHtml(shortId)}${characters.length > 8 ? "…" : ""}`;
+}
+
+function formatUtcTimestamp(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  const months = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December"
+  ];
+  const month = months[parsed.getUTCMonth()];
+  if (month === undefined) return value;
+  const hour = parsed.getUTCHours();
+  const displayHour = hour % 12 || 12;
+  const minute = String(parsed.getUTCMinutes()).padStart(2, "0");
+  const period = hour < 12 ? "AM" : "PM";
+  return `${month} ${parsed.getUTCDate()}, ${parsed.getUTCFullYear()} at ${displayHour}:${minute} ${period} UTC`;
 }
 
 function reportHref(runId: string): string {

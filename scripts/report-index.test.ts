@@ -43,14 +43,70 @@ test("static index renders all dispositions safely without judgment or external 
     "2026-07-20T22:00:00.000Z"
   );
 
-  for (const kind of ["full_report", "activity_only", "blocked", "analysis_failed"]) {
-    assert.match(html, new RegExp(kind));
+  for (const [kind, label] of [
+    ["full_report", "Full report ready"],
+    ["activity_only", "Activity receipt"],
+    ["blocked", "Analysis blocked"],
+    ["analysis_failed", "Analysis failed"]
+  ]) {
+    assert.match(html, new RegExp(`<span class="badge">${label}</span>`));
+    assert.match(html, new RegExp(`<dt>Disposition</dt><dd>${kind}</dd>`));
   }
+  assert.match(html, /<h2>Development session<\/h2>/);
+  assert.doesNotMatch(html, /<h2>&lt;script&gt;/);
+  assert.match(html, /Session &lt;script&gt;…/);
   assert.match(html, /&lt;script&gt;alert\(&quot;session&quot;\)&lt;\/script&gt;/);
+  assert.match(html, /<details class="technical-details"><summary>Technical details<\/summary>/);
+  assert.doesNotMatch(html, /<details[^>]*\sopen(?:[\s=>])/);
+  assert.match(html, /<dt>Reason<\/dt><dd>validated_analysis_available<\/dd>/);
+  assert.match(html, /<dt>Reason<\/dt><dd>insufficient_structural_evidence<\/dd>/);
+  assert.match(html, /<dt>Reason<\/dt><dd>missing_api_key<\/dd>/);
+  assert.match(html, /<dt>Reason<\/dt><dd>request_failed<\/dd>/);
+  assert.match(html, /Generated July 20, 2026 at 10:00 PM UTC · 4 recorded sessions/);
+  assert.match(html, /Evaluated July 20, 2026 at 10:00 PM UTC/);
+  assert.match(html, /<dt>Evaluation timestamp<\/dt><dd>2026-07-20T22:00:00\.000Z<\/dd>/);
   assert.doesNotMatch(html, /<script\b|<link\b|https?:\/\/|file:\/\/|<img\b/i);
   assert.doesNotMatch(html, /valuable|wasteful|productive|unproductive/i);
-  assert.match(html, /not a permanent fact about the session/i);
+  assert.match(html, /A deterministic activity receipt is available/);
+  assert.match(html, /No full provider-generated narrative was produced/);
+  assert.match(html, /Full analysis could not proceed under the conditions evaluated at that time/);
+  assert.match(html, /evaluated again if conditions change/i);
   assert.match(html, /did not produce a validated report/i);
+  assert.match(html, /diagnostic state/i);
+});
+
+test("session identity and timestamps use leadership-first labels with audit details", () => {
+  const sessionId = "019f805c-8a97-7000-8000-0123456789ab";
+  const fullReport = allDispositionVariants(sessionId)[0]!;
+  const html = renderStaticReportIndex(
+    [{ disposition: fullReport, storageKey: sessionId, path: "/ignored" }],
+    new Set(["run-full"]),
+    "2026-07-21T00:53:27.600Z"
+  );
+
+  assert.match(html, /<h2>Development session<\/h2>/);
+  assert.doesNotMatch(html, new RegExp(`<h2>${sessionId}</h2>`));
+  assert.match(html, /Session 019f805c…/);
+  assert.match(html, new RegExp(`<dt>Session identity</dt><dd>${sessionId}</dd>`));
+  assert.match(html, /Generated July 21, 2026 at 12:53 AM UTC · 1 recorded session/);
+  assert.match(html, /Evaluated July 20, 2026 at 10:00 PM UTC/);
+  assert.match(html, /A validated, evidence-backed analysis is ready\./);
+  assert.match(html, />Open leadership report<\/a>/);
+});
+
+test("null session identity stays neutral and generated timestamp fallback is escaped", () => {
+  const disposition = blockedDisposition(null, "missing_api_key");
+  const html = renderStaticReportIndex(
+    [{ disposition, storageKey: `ungrouped-${"a".repeat(64)}`, path: "/ignored" }],
+    new Set(),
+    '<time onclick="alert(1)">'
+  );
+
+  assert.match(html, /<h2>Development session<\/h2>/);
+  assert.match(html, /Session identity unavailable/);
+  assert.doesNotMatch(html, /Session ungrouped/);
+  assert.match(html, /Generated &lt;time onclick=&quot;alert\(1\)&quot;&gt; · 1 recorded session/);
+  assert.doesNotMatch(html, /<time onclick=/);
 });
 
 test("full-report links are fixed portable relative URLs and missing HTML is explicit", () => {
@@ -101,6 +157,11 @@ test("index rebuilding checks the trusted fixed HTML path and writes atomically"
       validationSummaryArtifact: "validation-summary.json",
       renderedArtifacts: { html: "report.html" }
     })
+  );
+  writeFileSync(
+    join(root, ".codex-observer", "analysis-runs", "run-index", "analysis.json"),
+    "not read while rebuilding the inbox",
+    "utf8"
   );
 
   const result = rebuildStaticReportIndex(
@@ -190,7 +251,7 @@ function allDispositionVariants(sessionId: string): FinalSessionDisposition[] {
 }
 
 function blockedDisposition(
-  sessionId: string,
+  sessionId: string | null,
   reason: "missing_api_key" | "automatic_analysis_not_enabled",
   evaluatedAt = "2026-07-20T22:00:00.000Z"
 ): FinalSessionDisposition {
@@ -202,7 +263,7 @@ function blockedDisposition(
   });
 }
 
-function receipt(sessionId: string): StructuralSessionReceipt {
+function receipt(sessionId: string | null): StructuralSessionReceipt {
   return {
     sessionId,
     evidenceStateHash: "a".repeat(64),
