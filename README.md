@@ -50,7 +50,7 @@ in a supported interactive environment; use this form to suppress opening:
 npm run demo -- --no-open
 ```
 
-https://github.com/user-attachments/assets/6c3f5684-9ade-4d9d-97ff-636bfb1cbd9a
+<img width="500" height="287" alt="kea-demo" src="https://github.com/user-attachments/assets/184f6fad-6d3b-4f14-bb15-e04b3fa5f615" />
 
 
 The reference candidate deliberately contains three problems:
