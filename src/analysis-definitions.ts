@@ -147,13 +147,13 @@ export const OUTCOME_FINDING_SEMANTICS =
   `reportedOutcome records what the assistant claimed and cites only ${formatSourceClasses(REPORTED_OUTCOME_SOURCE_CLASSES)} evidence. independentlySupportedOutcome records only what activity or state evidence establishes and cites only ${formatSourceClasses(ACTIVITY_SOURCE_CLASSES)} evidence. Establishing or contradicting an outcome requires at least one cited ${formatSourceClasses(RESULT_BEARING_OUTCOME_SOURCE_CLASSES)} evidence item; ${formatSourceClasses(TOOL_ATTEMPT_SOURCE_CLASSES)} proves an action was initiated but not what result occurred.`;
 
 export const LEADERSHIP_INSIGHT_SEMANTICS =
-  "Leadership insights use an inference basis, cite supplied evidence, and number at most two.";
+  "Leadership insights use an inference basis, cite supplied evidence, and number at most two. Each insight must add a decision-relevant implication rather than repeat another finding. It may identify necessary follow-up, unresolved risk, a reusable constraint, requirement ambiguity, process improvement, resource implication, readiness decision, or a point where human judgment materially changed the work. Translate technical facts into practical significance for technical or nontechnical leadership when the evidence supports that translation. Omit leadership insights when the evidence supports no useful implication. Never infer developer competence, motivation, personal performance, productivity, financial return, hours saved, or budget efficiency without sufficient direct evidence.";
 
 export const OBJECTIVE_SEMANTICS =
-  "The objective is the primary task requested by the human; combining multiple messages generally makes it an inference.";
+  "The objective is the overarching session-level task or intended outcome sought by the human. For a long session with multiple related requests, summarize their common goal and represent meaningful local goals as approaches. Combining multiple messages generally makes the objective an inference. Do not force genuinely unrelated work into one objective.";
 
 export const APPROACH_SEMANTICS =
-  "An approach is a meaningful technical strategy or local goal grouping related activity, not one approach per individual tool call.";
+  "An approach is a meaningful technical strategy, implementation phase, or local goal that groups related activity. Use approaches for substantial sub-objectives, alternative strategies, or distinct phases of work. Do not create one approach per prompt, tool call, file inspection, routine test run, or minor edit.";
 
 export const EVIDENCE_GAP_SEMANTICS =
   "An evidence gap is something the recording cannot establish; use unknown rather than filling in the missing fact.";

@@ -18,6 +18,7 @@ import {
   HumanInterventionCategorySchema,
   HUMAN_INTERVENTION_SEMANTICS,
   HUMAN_INTERVENTION_SOURCE_CLASSES,
+  LEADERSHIP_INSIGHT_SEMANTICS,
   OBJECTIVE_SEMANTICS,
   OBSERVED_SOURCE_CLASSES,
   OUTCOME_FINDING_SEMANTICS,
@@ -32,7 +33,10 @@ import {
   TOOL_ATTEMPT_SOURCE_CLASSES,
   TURNING_POINT_SEMANTICS
 } from "../src/analysis-definitions.ts";
-import { buildAnalysisInstructions } from "../src/analysis-prompt.ts";
+import {
+  ANALYSIS_BRIEF,
+  buildAnalysisInstructions
+} from "../src/analysis-prompt.ts";
 import { VALIDATOR_SOURCE_CLASS_POLICIES } from "../src/analysis-validator.ts";
 
 test("source-class formatting is stable and generated semantics contain exact policy values", () => {
@@ -157,7 +161,8 @@ test("provider prompt consumes exported semantics without parallel source-class 
     CODEX_CONTRIBUTION_SEMANTICS,
     OUTCOME_FINDING_SEMANTICS,
     OUTCOME_SUPPORT_SEMANTICS,
-    EVIDENCE_GAP_SEMANTICS
+    EVIDENCE_GAP_SEMANTICS,
+    LEADERSHIP_INSIGHT_SEMANTICS
   ]) {
     assert.ok(instructions.includes(semantics));
   }
@@ -173,6 +178,79 @@ test("provider prompt consumes exported semantics without parallel source-class 
     promptSource,
     /ACTIVITY_SOURCE_CLASSES|OBSERVED_SOURCE_CLASSES|EXPLICIT_SOURCE_CLASSES|CODEX_CONTRIBUTION_SOURCE_CLASSES/
   );
+});
+
+test("authored analysis brief establishes audience, synthesis, and practical significance", () => {
+  const instructions = buildAnalysisInstructions();
+
+  assert.ok(instructions.includes(ANALYSIS_BRIEF));
+  assert.ok(
+    instructions.indexOf("Analyze one Kea session") <
+      instructions.indexOf(ANALYSIS_BRIEF)
+  );
+  assert.ok(
+    instructions.indexOf(ANALYSIS_BRIEF) <
+      instructions.indexOf("Source classes:")
+  );
+  assert.match(ANALYSIS_BRIEF, /technical leader/);
+  assert.match(
+    ANALYSIS_BRIEF,
+    /business or organizational leader who controls priorities, staffing, or budget/
+  );
+  assert.match(ANALYSIS_BRIEF, /developer who needs to verify/);
+  assert.match(ANALYSIS_BRIEF, /plain language/);
+  assert.match(ANALYSIS_BRIEF, /practical significance/);
+  assert.match(ANALYSIS_BRIEF, /Synthesize rather than narrate/);
+  assert.match(ANALYSIS_BRIEF, /overarching session-level goal/);
+  assert.match(ANALYSIS_BRIEF, /small number of meaningful approaches/);
+  assert.match(ANALYSIS_BRIEF, /do not force it into one causal narrative/i);
+});
+
+test("authored analysis brief requires evidence-backed business relevance without unsupported performance claims", () => {
+  for (const expected of [
+    "completed scope versus remaining scope",
+    "verification still needed before accepting the result",
+    "risks that may create future cost or delay",
+    "resource implication leadership should consider",
+    "continuing, reviewing, revising, or pausing the work"
+  ]) {
+    assert.ok(ANALYSIS_BRIEF.includes(expected));
+  }
+  assert.match(ANALYSIS_BRIEF, /budget was used efficiently or inefficiently/);
+  assert.match(ANALYSIS_BRIEF, /return on investment/);
+  assert.match(ANALYSIS_BRIEF, /hours saved/);
+  assert.match(ANALYSIS_BRIEF, /developer productivity/);
+  assert.match(
+    ANALYSIS_BRIEF,
+    /Produce no leadership insight when the evidence supports no decision-relevant implication/
+  );
+  assert.match(ANALYSIS_BRIEF, /Do not assess an individual developer's competence/);
+});
+
+test("refined category semantics preserve trust rules and improve session-level synthesis", () => {
+  const instructions = buildAnalysisInstructions();
+
+  assert.match(OBJECTIVE_SEMANTICS, /overarching session-level task or intended outcome/);
+  assert.match(OBJECTIVE_SEMANTICS, /summarize their common goal/);
+  assert.match(OBJECTIVE_SEMANTICS, /Do not force genuinely unrelated work/);
+  assert.match(APPROACH_SEMANTICS, /implementation phase, or local goal/);
+  assert.match(APPROACH_SEMANTICS, /substantial sub-objectives/);
+  assert.match(APPROACH_SEMANTICS, /file inspection, routine test run, or minor edit/);
+  assert.match(LEADERSHIP_INSIGHT_SEMANTICS, /decision-relevant implication/);
+  assert.match(LEADERSHIP_INSIGHT_SEMANTICS, /Omit leadership insights/);
+  assert.match(LEADERSHIP_INSIGHT_SEMANTICS, /resource implication/);
+
+  for (const retainedRule of [
+    EVIDENCE_BASIS_SEMANTICS,
+    OUTCOME_FINDING_SEMANTICS,
+    OUTCOME_SUPPORT_SEMANTICS,
+    EVIDENCE_GAP_SEMANTICS,
+    "Every non-unknown finding cites one or more supplied evidence IDs",
+    "Confidence and a short confidence reason",
+    "Use unknown findings whenever the supplied evidence is insufficient"
+  ]) {
+    assert.ok(instructions.includes(retainedRule));
+  }
 });
 
 test("validator allowed-source policies directly reuse shared source-class constants", () => {
