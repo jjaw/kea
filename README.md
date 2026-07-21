@@ -1,5 +1,11 @@
 # Kea
 
+![Version](https://img.shields.io/badge/version-0.0.1-green)
+![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.6-339933?logo=nodedotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white)
+![License](https://img.shields.io/github/license/jjaw/kea)
+![Platform](https://img.shields.io/badge/platform-macOS%20tested-lightgrey?logo=apple)
+
 AI coding tools can produce convincing explanations of what happened during a
 development session. The harder question is whether those explanations are
 actually supported by evidence.
