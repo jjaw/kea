@@ -170,37 +170,93 @@ human product judgment
 → human acceptance or revision
 ```
 
-## Setup and configuration
+## Install and set up Kea
 
-Prerequisites are Node.js 22.6 or newer, npm, Git, and a Codex CLI version with
-compatible project-hook support. The current runtime acceptance environment is
-macOS arm64, and hooks were validated with `codex-cli 0.144.6`. The project
-assumes a POSIX-style shell and filesystem symlinks. Linux is plausible but not
-fully acceptance-tested; native Windows is unverified.
+The MVP runs only from the cloned Kea repository; npm publication and
+arbitrary-project installation are future work. These steps enable Kea inside
+that checkout.
 
-This is a project-local prototype, not a published npm package or tested
-arbitrary-project installer. From the cloned repository, inspect
-`.codex/hooks.json`, approve the project hooks when prompted, and launch Codex
-from the repository root because the hooks resolve the recorder through `$PWD`.
+Prerequisites are Node.js 22.6 or newer, npm, Git, and Codex CLI with project
+hooks. Kea was tested on macOS arm64 with `codex-cli 0.144.6`. It assumes a
+POSIX-style shell and filesystem symlinks; Linux is plausible but not fully
+acceptance-tested, and native Windows is unverified.
 
-Live automatic analysis requires both values in the shell that launches Codex:
+### 1. Clone and install dependencies
+
+```bash
+git clone https://github.com/jjaw/kea.git
+cd kea
+npm ci
+```
+
+### 2. Choose local capture or automatic analysis
+
+Local capture needs no API key or Kea environment variable. Skip to step 3 if
+you only want local recording.
+
+For automatic provider-backed analysis, set both values in the same shell that
+will launch Codex:
 
 ```bash
 export OPENAI_API_KEY="your-key"
 export KEA_AUTOMATIC_ANALYSIS_ENABLED=true
+```
+
+`KEA_AUTOMATIC_ANALYSIS_ENABLED` is explicit consent to send an eligible,
+sanitized evidence payload to the OpenAI API; only the exact value `true`
+enables it. Hook approval is separate. The worker inherits the shell
+environment, and there is no `.env` loader. Never commit API keys. Users supply
+their own key and pay for model usage; Kea does not host or proxy analysis.
+
+### 3. Start Codex and approve the project hooks
+
+Launch Codex from the repository root because the checked-in hooks resolve the
+recorder through `$PWD`:
+
+```bash
 codex
 ```
 
-Consent is enabled only by the exact value `true`. The one-shot worker inherits
-the shell environment, and this repository has no `.env` loader. Never commit
-API keys. Kea does not host or proxy live analysis; users supply their own key
-and pay for their own OpenAI model usage.
+If Codex asks you to trust the repository, review and trust it. Then enter
+`/hooks` in Codex, review the commands from `.codex/hooks.json`, and trust the
+current definitions. Codex skips command hooks until trusted. Trust follows the
+definition hash, so changes require another review and a different machine or
+Codex profile may prompt again. See the [Codex hook trust
+documentation](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
 
-The default quiet interval is 60 seconds. For live-workflow rehearsal only:
+After approval, use Codex normally. Kea captures passively; there is no Kea
+command to run after each turn.
+
+### 4. Verify capture
+
+After submitting at least one Codex prompt and completing a turn, run this in
+another terminal from the same repository:
+
+```bash
+npm run doctor
+```
+
+The doctor checks the environment, hook commands, and recent local recording.
+It requires recent captured activity, so run it after using Codex rather than
+immediately after installation.
+
+### 5. Open the local inbox
+
+After `Stop` activity, Kea's one-shot worker waits for the session to settle,
+processes it, updates the inbox, and exits. Open this file in a browser:
+
+```text
+.codex-observer/reports/index.html
+```
+
+The default quiet interval is 60 seconds. For live-workflow rehearsal only,
+you can set a two-second override before launching Codex:
 
 ```bash
 export KEA_AUTOMATIC_QUIET_INTERVAL_MS=2000
 ```
+
+This override is optional and is not needed for normal use or `npm run demo`.
 
 ## Privacy and local data
 
