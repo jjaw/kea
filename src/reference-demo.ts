@@ -131,11 +131,29 @@ export type ReferenceDemoResult = {
   indexPath: string;
 };
 
+export type ReferenceDemoProgress =
+  | { stage: "fixture_loaded"; recordCount: number }
+  | {
+      stage: "evidence_prepared";
+      evidenceCount: number;
+      serializedCorpusBytes: number;
+    }
+  | { stage: "reference_analysis_completed" }
+  | {
+      stage: "validation_completed";
+      rejectedCount: number;
+      downgradedCount: number;
+      amendedCount: number;
+    }
+  | { stage: "report_generated" }
+  | { stage: "inbox_updated" };
+
 export async function runReferenceDemo(options: {
   projectRoot: string;
   fixtureDirectory: string;
   outputRoot?: string;
   now?: Date;
+  onProgress?: (progress: ReferenceDemoProgress) => void;
 }): Promise<ReferenceDemoResult> {
   const fixtureDirectory = realpathSync(options.fixtureDirectory);
   const recordingPath = join(fixtureDirectory, FIXTURE_RECORDING);
@@ -153,18 +171,28 @@ export async function runReferenceDemo(options: {
     expectedDisposition.fixture,
     "Approved fixture integrity"
   );
+  options.onProgress?.({
+    stage: "fixture_loaded",
+    recordCount: fixtureLineCount
+  });
 
   const candidate = readJson(
     join(fixtureDirectory, MOCK_ANALYSIS),
     "Mock candidate analysis",
     AnalysisSchema
   );
-  const providerState = localReferenceProvider(candidate, options.now ?? REFERENCE_DEMO_NOW);
+  const providerState = localReferenceProvider(
+    candidate,
+    options.now ?? REFERENCE_DEMO_NOW
+  );
   const demo = await runDemo({
     projectRoot: options.projectRoot,
     fixtureRecordingPath: recordingPath,
     ...(options.outputRoot === undefined ? {} : { outputRoot: options.outputRoot }),
-    provider: providerState.provider,
+    provider: progressReportingProvider(
+      providerState.provider,
+      options.onProgress
+    ),
     now: options.now ?? REFERENCE_DEMO_NOW
   });
 
@@ -212,6 +240,12 @@ export async function runReferenceDemo(options: {
     NormalizedValidationAuditSchema
   );
   assertExact(validationAudit, expectedAudit, "Normalized validation audit");
+  options.onProgress?.({
+    stage: "validation_completed",
+    rejectedCount: validationAudit.rejectedCount,
+    downgradedCount: validationAudit.downgradedCount,
+    amendedCount: validationAudit.amendedCount
+  });
 
   const bundle = readJson(
     artifacts.bundlePath,
@@ -245,12 +279,14 @@ export async function runReferenceDemo(options: {
     "Expected renderer assertions",
     RendererAssertionsSchema
   );
-  validateRendererAssertions(
-    reportHtml,
+  validateRendererSection("report", reportHtml, rendererAssertions.report);
+  options.onProgress?.({ stage: "report_generated" });
+  validateIndexRendererAssertions(
     indexHtml,
     demo.artifacts.runId,
-    rendererAssertions
+    rendererAssertions.index
   );
+  options.onProgress?.({ stage: "inbox_updated" });
 
   return {
     demo,
@@ -263,7 +299,10 @@ export async function runReferenceDemo(options: {
   };
 }
 
-function localReferenceProvider(candidate: Analysis, now: Date): {
+function localReferenceProvider(
+  candidate: Analysis,
+  now: Date
+): {
   provider: AnalysisProvider;
   calls(): number;
 } {
@@ -289,6 +328,25 @@ function localReferenceProvider(candidate: Analysis, now: Date): {
       }
     },
     calls: () => callCount
+  };
+}
+
+function progressReportingProvider(
+  provider: AnalysisProvider,
+  onProgress?: (progress: ReferenceDemoProgress) => void
+): AnalysisProvider {
+  return {
+    analyze: async (bundle) => {
+      const corpus = measureEvidenceCorpus(bundle);
+      onProgress?.({
+        stage: "evidence_prepared",
+        evidenceCount: bundle.evidence.length,
+        serializedCorpusBytes: corpus.serializedCorpusBytes
+      });
+      const result = await provider.analyze(bundle);
+      onProgress?.({ stage: "reference_analysis_completed" });
+      return result;
+    }
   };
 }
 
@@ -344,16 +402,14 @@ function normalizeDisposition(options: {
   });
 }
 
-function validateRendererAssertions(
-  reportHtml: string,
+function validateIndexRendererAssertions(
   indexHtml: string,
   runId: string,
-  assertions: RendererAssertions
+  assertions: RendererAssertions["index"]
 ): void {
-  validateRendererSection("report", reportHtml, assertions.report);
-  validateRendererSection("index", indexHtml, assertions.index);
+  validateRendererSection("index", indexHtml, assertions);
 
-  const expectedHref = assertions.index.relativeReportHref.replace(
+  const expectedHref = assertions.relativeReportHref.replace(
     GENERATED_RUN_ID,
     runId
   );
@@ -363,9 +419,9 @@ function validateRendererAssertions(
     "index relative report link"
   );
   const entryCount = countOccurrences(indexHtml, '<article class="entry ');
-  if (entryCount !== assertions.index.entryCount) {
+  if (entryCount !== assertions.entryCount) {
     throw new Error(
-      `Index entry count mismatch: expected ${assertions.index.entryCount}, received ${entryCount}`
+      `Index entry count mismatch: expected ${assertions.entryCount}, received ${entryCount}`
     );
   }
 }

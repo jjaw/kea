@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   statSync,
   writeFileSync
@@ -267,7 +268,7 @@ test("reference demo modules have no live-provider, credential, or network path"
   }
 });
 
-test("public demo command reports credential-free generated paths", async () => {
+test("public demo command reports real progress, stable values, and credential-free generated paths", async () => {
   const projectRoot = mkdtempSync(join(tmpdir(), "kea-reference-command-"));
   const stdout = bufferOutput();
   const stderr = bufferOutput();
@@ -277,8 +278,14 @@ test("public demo command reports credential-free generated paths", async () => 
     const exitCode = await runDemoCommand({
       projectRoot,
       fixtureDirectory: FIXTURE_DIRECTORY,
+      args: ["--no-open"],
       stdout,
-      stderr
+      stderr,
+      platform: "darwin",
+      interactive: true,
+      launchBrowser: async () => {
+        throw new Error("--no-open must suppress browser launching");
+      }
     });
     assert.equal(exitCode, 0);
   } finally {
@@ -293,18 +300,24 @@ test("public demo command reports credential-free generated paths", async () => 
   assert.match(stdout.value(), /No credentials were used\./);
   assert.match(stdout.value(), /No network request was made\./);
   const outputLines = stdout.value().split("\n");
-  assert.equal(
-    outputLines.includes(
-      "Sanitized evidence prepared for analysis: 105 items, 111,102 bytes"
-    ),
-    true
-  );
-  assert.equal(
-    outputLines.includes(
-      "Validation safeguards applied: 1 rejected, 1 downgraded, 1 amended"
-    ),
-    true
-  );
+  let previousProgressIndex = -1;
+  for (const line of [
+    "Kea reference demo",
+    "✓ Loaded the approved 101-record Codex session",
+    "✓ Prepared 105 sanitized evidence items (111,102 bytes)",
+    "✓ Ran deterministic reference analysis",
+    "✓ Applied validation safeguards",
+    "  1 rejected · 1 downgraded · 1 amended",
+    "✓ Generated the leadership report",
+    "✓ Updated the report inbox"
+  ]) {
+    const progressIndex = outputLines.indexOf(line);
+    assert.ok(
+      progressIndex > previousProgressIndex,
+      `Missing or out-of-order output line: ${line}`
+    );
+    previousProgressIndex = progressIndex;
+  }
   assert.match(
     stdout.value(),
     /Leadership report: \.kea-demo-output\/\.codex-observer\/analysis-runs\/[^/]+\/report\.html/
@@ -322,6 +335,184 @@ test("public demo command reports credential-free generated paths", async () => 
   const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
   assert.equal(packageJson.scripts.demo, "node scripts/demo.ts");
   assert.equal(sha256(FIXTURE_PATH), FIXTURE_SHA256);
+});
+
+test("interactive macOS demo opens the generated inbox with one separate path argument", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "kea-reference-open-macos-"));
+  const stdout = bufferOutput();
+  const stderr = bufferOutput();
+  const launches: Array<{ command: string; args: readonly string[] }> = [];
+
+  const exitCode = await runDemoCommand({
+    projectRoot,
+    fixtureDirectory: FIXTURE_DIRECTORY,
+    stdout,
+    stderr,
+    platform: "darwin",
+    interactive: true,
+    environment: {},
+    launchBrowser: async (command, args) => {
+      launches.push({ command, args: [...args] });
+    }
+  });
+
+  assert.equal(exitCode, 0);
+  assert.equal(stderr.value(), "");
+  assert.deepEqual(launches, [
+    {
+      command: "open",
+      args: [
+        join(
+          realpathSync(projectRoot),
+          ".kea-demo-output",
+          ".codex-observer",
+          "reports",
+          "index.html"
+        )
+      ]
+    }
+  ]);
+  assert.match(
+    stdout.value(),
+    /Open inbox: open "\.kea-demo-output\/\.codex-observer\/reports\/index\.html"/
+  );
+  assert.equal(sha256(FIXTURE_PATH), FIXTURE_SHA256);
+});
+
+test("--no-open always suppresses browser launching", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "kea-reference-no-open-"));
+  let launchCount = 0;
+  const exitCode = await runDemoCommand({
+    projectRoot,
+    fixtureDirectory: FIXTURE_DIRECTORY,
+    args: ["--no-open"],
+    stdout: bufferOutput(),
+    stderr: bufferOutput(),
+    platform: "darwin",
+    interactive: true,
+    environment: {},
+    launchBrowser: async () => {
+      launchCount += 1;
+    }
+  });
+
+  assert.equal(exitCode, 0);
+  assert.equal(launchCount, 0);
+});
+
+test("CI and noninteractive demo runs suppress browser launching", async (t) => {
+  for (const testCase of [
+    { name: "CI", interactive: true, environment: { CI: "true" } },
+    { name: "noninteractive", interactive: false, environment: {} }
+  ] as const) {
+    await t.test(testCase.name, async () => {
+      const projectRoot = mkdtempSync(
+        join(tmpdir(), `kea-reference-${testCase.name}-`)
+      );
+      let launchCount = 0;
+      const exitCode = await runDemoCommand({
+        projectRoot,
+        fixtureDirectory: FIXTURE_DIRECTORY,
+        stdout: bufferOutput(),
+        stderr: bufferOutput(),
+        platform: "darwin",
+        interactive: testCase.interactive,
+        environment: testCase.environment,
+        launchBrowser: async () => {
+          launchCount += 1;
+        }
+      });
+
+      assert.equal(exitCode, 0);
+      assert.equal(launchCount, 0);
+    });
+  }
+});
+
+test("Linux opens only when xdg-open is available", async (t) => {
+  for (const available of [true, false]) {
+    await t.test(available ? "available" : "unavailable", async () => {
+      const projectRoot = mkdtempSync(
+        join(tmpdir(), `kea-reference-linux-${available}-`)
+      );
+      const launches: Array<{ command: string; args: readonly string[] }> = [];
+      const exitCode = await runDemoCommand({
+        projectRoot,
+        fixtureDirectory: FIXTURE_DIRECTORY,
+        stdout: bufferOutput(),
+        stderr: bufferOutput(),
+        platform: "linux",
+        interactive: true,
+        environment: { DISPLAY: ":0" },
+        commandAvailable: (command) => {
+          assert.equal(command, "xdg-open");
+          return available;
+        },
+        launchBrowser: async (command, args) => {
+          launches.push({ command, args: [...args] });
+        }
+      });
+
+      assert.equal(exitCode, 0);
+      assert.equal(launches.length, available ? 1 : 0);
+      if (available) {
+        assert.equal(launches[0]?.command, "xdg-open");
+        assert.equal(launches[0]?.args.length, 1);
+      }
+    });
+  }
+});
+
+test("unsupported platforms print the inbox path without launching or failing", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "kea-reference-unsupported-"));
+  const stdout = bufferOutput();
+  const stderr = bufferOutput();
+  let launchCount = 0;
+  const exitCode = await runDemoCommand({
+    projectRoot,
+    fixtureDirectory: FIXTURE_DIRECTORY,
+    stdout,
+    stderr,
+    platform: "win32",
+    interactive: true,
+    environment: {},
+    launchBrowser: async () => {
+      launchCount += 1;
+    }
+  });
+
+  assert.equal(exitCode, 0);
+  assert.equal(launchCount, 0);
+  assert.equal(stderr.value(), "");
+  assert.match(
+    stdout.value(),
+    /Open inbox manually in a browser: \.kea-demo-output\/\.codex-observer\/reports\/index\.html/
+  );
+});
+
+test("browser launch failure warns without changing demo success", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "kea-reference-open-failure-"));
+  const stdout = bufferOutput();
+  const stderr = bufferOutput();
+  const exitCode = await runDemoCommand({
+    projectRoot,
+    fixtureDirectory: FIXTURE_DIRECTORY,
+    stdout,
+    stderr,
+    platform: "darwin",
+    interactive: true,
+    environment: {},
+    launchBrowser: async () => {
+      throw new Error("injected launch failure");
+    }
+  });
+
+  assert.equal(exitCode, 0);
+  assert.match(stdout.value(), /✓ Updated the report inbox/);
+  assert.equal(
+    stderr.value(),
+    "Warning: could not open the report inbox automatically: injected launch failure\n"
+  );
 });
 
 function allStrings(value: unknown): string[] {
