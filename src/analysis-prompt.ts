@@ -115,8 +115,8 @@ Do not assess an individual developer's competence, motivation, diligence, effor
 export function buildAnalysisInstructions(): string {
   return [
     "Analyze one Kea session using only the supplied evidence bundle.",
-    ANALYSIS_BRIEF,
     "Kea separates what messages claim from what activity and state evidence support.",
+    ANALYSIS_BRIEF,
     `Source classes: ${SOURCE_CLASS_SEMANTICS_TEXT}.`,
     `Evidence bases: ${EVIDENCE_BASES.join(", ")}. ${EVIDENCE_BASIS_SEMANTICS}`,
     CITATION_SEMANTICS,
