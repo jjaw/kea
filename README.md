@@ -1,6 +1,6 @@
 # Kea
 
-![Version](https://img.shields.io/badge/version-0.0.1-green)
+![Version](https://img.shields.io/badge/version-0.0.1-orange)
 ![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.6-339933?logo=nodedotjs&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white)
 ![License](https://img.shields.io/github/license/jjaw/kea)
