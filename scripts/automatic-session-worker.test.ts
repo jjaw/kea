@@ -42,9 +42,9 @@ import {
   type WorkerDependencies
 } from "./automatic-session-worker.ts";
 
-const TOKEN_ONE = "3a160460-e6de-4f9d-9101-45f92b16b54f";
-const TOKEN_TWO = "79236365-d958-44b7-94b2-43f05fb45151";
-const TOKEN_THREE = "b23c2fb7-e111-4e1e-9c60-6a634690fc1c";
+const TOKEN_ONE = "00000000-0000-4000-8000-000000000001";
+const TOKEN_TWO = "00000000-0000-4000-8000-000000000002";
+const TOKEN_THREE = "00000000-0000-4000-8000-000000000003";
 const NOW = new Date("2026-07-20T23:00:00.000Z");
 
 test("quiet interval and automatic consent use exact explicit environment values", () => {

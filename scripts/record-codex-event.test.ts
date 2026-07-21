@@ -174,7 +174,7 @@ test("detached launch ignores both synchronous spawn failure and an emitted chil
     schemaVersion: 1 as const,
     sessionStorageKey: "session-launch",
     sessionId: "session-launch",
-    pendingToken: "2f7ee9b6-af91-46dc-b69d-c1096a36bd43",
+    pendingToken: "00000000-0000-4000-8000-000000000004",
     stoppedAt: "2026-07-20T20:00:00.000Z"
   };
   assert.equal(
