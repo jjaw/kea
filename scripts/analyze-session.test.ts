@@ -141,7 +141,8 @@ test("live pipeline persists validated Markdown and HTML, a full_report disposit
   assert.match(report, /`E999`/);
 
   const html = readFileSync(result.artifacts.htmlReportPath ?? "", "utf8");
-  assert.match(html, /Kea leadership report/);
+  assert.match(html, /Kea for Codex — validated session brief/);
+  assert.match(html, /Executive snapshot/);
   assert.match(html, /What outcome is independently supported/);
   assert.match(html, /Validation audit/);
   const disposition = JSON.parse(readFileSync(result.dispositionPath, "utf8"));

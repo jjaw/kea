@@ -317,7 +317,7 @@ Agent-specific payload knowledge remains behind the Codex adapter boundary so
 other coding agents can be supported later without changing the evidence and
 validation model.
 
-## Current limitations and next steps
+## Current limitations
 
 The hackathon MVP supports Codex because it was built for a Codex-focused
 hackathon. Arbitrary-project installation, npm publication, other agent
@@ -330,10 +330,43 @@ and some hosted or specialized tools may not emit the expected hooks.
 Local reporting is a deliberate MVP boundary, not necessarily a permanent
 product boundary. Keeping raw capture, sanitization, validation, and the static
 inbox project-local reduced the hackathon's privacy and security surface and
-kept attention on the harder evidence problem. A future team workflow could
-optionally synchronize validated, sanitized reports to a hosted project
-dashboard while keeping raw recordings local. That synchronization, dashboard,
-and cross-session analysis do not exist today.
+kept attention on the harder evidence problem.
+
+## What's next for Kea
+
+The first practical next step is making Kea installable inside any existing
+repository through a one-command initializer. Because the unscoped `kea`
+package name is already in use on npm, the likely experience would be something
+such as `npx @jjaw/kea init`, followed by commands like `kea doctor`, `kea
+report`, and `kea uninstall`.
+
+Kea also needs to grow beyond a Codex-only recorder. The plan is to introduce a
+shared adapter layer that can normalize evidence from Codex hooks, other
+coding-agent hooks, structured logs, APIs, and native telemetry where those
+sources are available. Each adapter would declare what it can and cannot
+observe so Kea can preserve uncertainty rather than treating incomplete
+telemetry as complete evidence.
+
+For teams, the long-term model is local capture with optional organizational
+sharing. Raw prompts, command output, paths, and source details would remain on
+the developer's machine by default. Developers or administrators could choose
+to synchronize only sanitized and validated session briefs to a shared project
+dashboard.
+
+Small teams could continue approving Kea's hooks during setup. Managed
+organizations could have an administrator review Kea once and distribute its
+executable and managed hook policy centrally, avoiding separate approval by
+every developer.
+
+Future team views could surface supported outcomes, recurring blockers, human
+interventions, unresolved uncertainty, and evidence coverage across sessions.
+Kea would continue avoiding developer rankings, speculative productivity
+scores, hours-saved estimates, and automatic ROI claims.
+
+The long-term goal is for Kea to become an agent-independent evidence layer:
+not merely tracking how much AI was used, but helping individuals and
+organizations understand what the available evidence says that AI-assisted
+work actually accomplished.
 
 ## License
 
