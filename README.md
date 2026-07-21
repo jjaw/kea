@@ -50,6 +50,9 @@ in a supported interactive environment; use this form to suppress opening:
 npm run demo -- --no-open
 ```
 
+https://github.com/user-attachments/assets/6c3f5684-9ade-4d9d-97ff-636bfb1cbd9a
+
+
 The reference candidate deliberately contains three problems:
 
 - **Rejected:** a finding cites nonexistent evidence and is removed.
