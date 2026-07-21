@@ -717,37 +717,39 @@ amendment, and survival of valid turning points, not identical model output.
    HTML, or automatic orchestration. Automatic settlement of every real
    session remains dependent on Milestone 11.
 
-Active:
-
 10. **Leader-facing HTML report and static report inbox.**
 
-    Generate a self-contained HTML report from only:
+    Implemented a self-contained leadership-facing `report.html` rendered only
+    from validated `Analysis`, validated `ValidationSummary`, a sanitized
+    `EvidenceBundle`, and trusted run identity. The leadership-first report
+    presents the objective, independently supported outcome, human
+    interventions, uncertainty, and evidence-backed insights; keeps reported
+    and independently supported outcomes separate; labels every finding's
+    evidence basis; exposes expandable sanitized evidence and explicit
+    unresolved-evidence states; preserves turning-point before, after, and
+    canonical evidence; and keeps the deterministic validation audit
+    secondary.
 
-    - validated analysis;
-    - validation summary;
-    - sanitized evidence bundle.
+    The implementation centralizes HTML escaping, uses no JavaScript, external
+    resources, or network requests, and atomically persists `report.html`
+    beside the existing validated run artifacts. It also provides the static
+    `.codex-observer/reports/index.html` inbox for `full_report`,
+    `activity_only`, `blocked`, and `analysis_failed`, with portable relative
+    report links and leadership-friendly labels and timestamps while retaining
+    machine details in a collapsed audit disclosure. Successful manual
+    `npm run analyze` runs now persist the HTML report, final disposition, and
+    updated inbox. Focused renderer, persistence, safety, disposition, and
+    regression tests cover this behavior.
 
-    The report must:
+    Milestone 10 did not implement automatic orchestration. Ending a Codex
+    session does not yet produce a report automatically. Milestone 11 remains
+    responsible for pending-session markers, quiet-period settlement,
+    automatic-analysis consent and API-key evaluation, automatic provider
+    invocation, locking, deduplication, rate bounds, automatic disposition
+    creation and refresh, automatic inbox rebuilding, and zero-touch
+    post-session handoff.
 
-    - show the leadership conclusion first;
-    - distinguish reported from independently supported outcomes;
-    - display a basis badge for every finding;
-    - provide expandable, escaped evidence;
-    - expose rejected, downgraded, and amended validator actions;
-    - make unknowns visible;
-    - make no external requests;
-    - require no server or frontend framework.
-
-    Generate a static `index.html` that shows the latest disposition for every
-    captured session:
-
-    - link to the latest validated HTML report for `full_report`;
-    - show the deterministic receipt for `activity_only`, `blocked`, or
-      `analysis_failed`;
-    - keep historical runs in local audit storage rather than cluttering the
-      leadership index.
-
-Next:
+Active:
 
 11. **Automatic one-shot handoff.**
 
@@ -782,6 +784,8 @@ Next:
     - missing consent, missing key, oversized corpus, and provider failure are
       visible and non-destructive;
     - manual dry-run, selected-session analysis, and reruns still work.
+
+Next:
 
 12. **Sanitized reference fixture and credential-free demo.**
 
