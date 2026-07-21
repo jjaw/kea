@@ -741,51 +741,47 @@ amendment, and survival of valid turning points, not identical model output.
     updated inbox. Focused renderer, persistence, safety, disposition, and
     regression tests cover this behavior.
 
-    Milestone 10 did not implement automatic orchestration. Ending a Codex
-    session does not yet produce a report automatically. Milestone 11 remains
-    responsible for pending-session markers, quiet-period settlement,
-    automatic-analysis consent and API-key evaluation, automatic provider
-    invocation, locking, deduplication, rate bounds, automatic disposition
-    creation and refresh, automatic inbox rebuilding, and zero-touch
-    post-session handoff.
-
-Active:
+    Milestone 10 deliberately stopped before automatic orchestration;
+    Milestone 11 added that zero-touch post-session handoff while reusing the
+    report and inbox foundation.
 
 11. **Automatic one-shot handoff.**
 
-    Extend the existing `Stop` capture path only enough to refresh a pending
-    marker and launch a detached, short-lived worker. The hook must return
-    immediately and must never call a provider.
+    Implemented `Stop`-triggered atomic pending markers and detached,
+    short-lived one-shot workers. After the configured quiet period, the latest
+    `Stop` supersedes older pending state. Automatic provider transmission is
+    default-disabled and requires explicit project consent; the worker
+    evaluates the API-key environment without persisting the key. Deterministic
+    structural decisions take precedence over environmental checks and provider
+    work.
 
-    The worker:
+    Automatic settlement now produces `activity_only`, `blocked`,
+    `full_report`, or `analysis_failed` as appropriate. The worker uses a
+    simple per-session lock and stable evidence-state deduplication, reuses the
+    existing provider, deterministic validator, report, and persistence
+    pipeline, and rebuilds the static inbox automatically. Worker diagnostics
+    are bounded and private, and the capture hook remains fail-open.
 
-    - waits for a configurable quiet interval;
-    - exits when a newer pending state supersedes it;
-    - builds the complete sanitized corpus;
-    - computes the sanitized evidence-state hash;
-    - acquires a per-session lock;
-    - avoids reprocessing an already-settled evidence state;
-    - enforces a per-session automatic-call rate bound;
-    - writes an activity or diagnostic receipt for non-reportable states;
-    - runs the existing provider pipeline only for opted-in, full-report
-      eligible sessions;
-    - writes the HTML report and updates the static index;
-    - exits.
+    Automated coverage completed with 128 passing tests. A real zero-touch
+    smoke test ended an ordinary Codex session without `npm run analyze`, waited
+    through the quiet interval, automatically invoked the provider for an
+    eligible opted-in session, deterministically validated the response,
+    persisted Markdown and HTML reports plus a `full_report` disposition,
+    rebuilt `.codex-observer/reports/index.html`, and opened the leadership
+    report successfully. A separate provider-free smoke test confirmed that an
+    eligible session without an API key settles as `blocked` with reason
+    `missing_api_key`.
 
-    Use a practical default quiet interval for normal use and a shorter explicit
-    test/demo override. Do not implement a permanent daemon.
+    Limitations remain explicit: there is no permanent daemon or filesystem
+    watcher, the simple lock has no stale-lock lease or automatic crash
+    recovery, and environmental blocks are reconsidered only after another
+    `Stop`. Reports remain project-local static artifacts. Deterministic
+    validator authority, reported-versus-independently-supported outcome
+    separation, and neutral activity-only receipts remain unchanged; Kea does
+    not make productivity-scoring, employee-ranking, ROI, hours-saved, or
+    unsupported budget-efficiency claims.
 
-    Acceptance:
-
-    - the developer finishes ordinary Codex work and runs no Kea command;
-    - trivial activity produces a receipt without a provider call;
-    - eligible activity produces one validated HTML report;
-    - repeated `Stop` events do not create duplicate provider calls;
-    - missing consent, missing key, oversized corpus, and provider failure are
-      visible and non-destructive;
-    - manual dry-run, selected-session analysis, and reruns still work.
-
-Next:
+Active:
 
 12. **Sanitized reference fixture and credential-free demo.**
 
@@ -819,6 +815,11 @@ Next:
     - print their paths;
     - never mutate or inspect a user's real recordings.
 
+    Milestone 12 still needs the sanitized reference fixture and the
+    credential-free mocked demo.
+
+Next:
+
 13. **README, acceptance pass, and submission package.**
 
     Verify from a clean clone:
@@ -843,6 +844,8 @@ Next:
     - under-three-minute demo video;
     - submission description;
     - final dry-run review of exactly what leaves the machine.
+
+    Milestone 13 still needs the final README, demo video, and submission work.
 
 ### Time-permitting only after the core demo is frozen
 
