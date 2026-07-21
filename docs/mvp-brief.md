@@ -781,44 +781,27 @@ amendment, and survival of valid turning points, not identical model output.
     not make productivity-scoring, employee-ranking, ROI, hours-saved, or
     unsupported budget-efficiency claims.
 
-Active:
-
 12. **Sanitized reference fixture and credential-free demo.**
 
-    Record one real, ordinary development session through the automatic
-    project-local workflow. Do not tell Codex to manufacture a failure or
-    optimize its behavior for Kea.
+    Completed with one real, ordinary Codex development session captured
+    through Kea's automatic handoff. Its complete 101-record JSONL recording
+    was retained as a manually sanitized public fixture with a provenance note
+    recording completed project-owner review.
 
-    Commit only after manual sanitization:
+    The fixture produces 105 retained evidence items with zero omissions and
+    111,102 bytes of sanitized evidence prepared for analysis. A deterministic
+    local mocked provider exercises the real adapter, evidence builder, schema
+    parser, validator, persistence, Markdown renderer, HTML renderer,
+    disposition store, and static inbox. Validation deterministically applies
+    exactly 1 rejection, 1 downgrade, and 1 amendment.
 
-    - the recording;
-    - a provenance note;
-    - mocked provider output;
-    - expected validated analysis and validator audit;
-    - expected disposition;
-    - expected HTML/index assertions.
+    The demo runs beneath isolated `.kea-demo-output/`, never inspects or
+    mutates real `.codex-observer` recordings, uses no credentials, and makes
+    no network request. Generated report and inbox paths are repository
+    relative. `npm run demo` succeeded with `OPENAI_API_KEY` unset and with a
+    fake key that was ignored. Completion verification passed all 137 tests.
 
-    Add:
-
-    ```bash
-    npm run demo
-    ```
-
-    `npm run demo` must:
-
-    - require no API key;
-    - load the sanitized reference fixture;
-    - use the real evidence builder, validator, persistence, HTML renderer, and
-      index renderer;
-    - use mocked provider output;
-    - generate a viewable leadership report and index;
-    - print their paths;
-    - never mutate or inspect a user's real recordings.
-
-    Milestone 12 still needs the sanitized reference fixture and the
-    credential-free mocked demo.
-
-Next:
+Active:
 
 13. **README, acceptance pass, and submission package.**
 

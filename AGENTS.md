@@ -253,6 +253,7 @@ npm run analyze -- --dry-run
 npm run analyze -- --dry-run SESSION_ID
 npm run analyze
 npm run analyze -- SESSION_ID
+npm run demo
 ```
 
 `npm run check` runs typechecking and tests. `npm run report` is the
@@ -260,5 +261,7 @@ deterministic fallback. `npm run analyze -- --dry-run` exposes the exact
 sanitized corpus without a provider call. `npm run analyze` performs live
 analysis when the API key and request-budget checks pass.
 
-Planned commands such as `npm run demo` belong in `docs/mvp-brief.md` until
-they are implemented and tested.
+`npm run demo` runs the approved sanitized reference fixture through Kea's real
+evidence, validation, persistence, HTML-report, disposition, and static-inbox
+pipeline using deterministic mocked provider output. It requires no API key
+and makes no network request.
