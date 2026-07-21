@@ -50,7 +50,7 @@ in a supported interactive environment; use this form to suppress opening:
 npm run demo -- --no-open
 ```
 
-<video src="https://github.com/user-attachments/assets/184f6fad-6d3b-4f14-bb15-e04b3fa5f615" width="500" autoplay loop muted playsinline></video>
+<video src="https://github.com/user-attachments/assets/6c3f5684-9ade-4d9d-97ff-636bfb1cbd9a" width="500" autoplay loop muted playsinline></video>
 
 
 The reference candidate deliberately contains three problems:
