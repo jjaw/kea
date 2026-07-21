@@ -51,9 +51,13 @@ npm run demo -- --no-open
 ```
 
 
-
-
-<video src="https://github.com/user-attachments/assets/bad88f61-3820-49ce-bbcb-c9e438b7dff4" width="500" autoplay loop muted playsinline></video>
+<p align="center">
+  <img
+    src="https://github.com/user-attachments/assets/3f14d1a8-c50e-41b0-a52e-3bfb4d219237"
+    width="100%"
+    alt="Kea processes a Codex session and opens the local report"
+  />
+</p>
 
 
 The reference candidate deliberately contains three problems:
