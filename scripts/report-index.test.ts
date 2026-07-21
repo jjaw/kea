@@ -53,6 +53,10 @@ test("static index renders all dispositions safely without judgment or external 
     assert.match(html, new RegExp(`<dt>Disposition</dt><dd>${kind}</dd>`));
   }
   assert.match(html, /<h2>Development session<\/h2>/);
+  assert.match(html, /<span class="wordmark">Kea<\/span>/);
+  assert.match(html, /Evidence for Codex-assisted development/);
+  assert.match(html, /<p class="inbox-label">Local session reporting<\/p>/);
+  assert.match(html, /<h1>Report inbox<\/h1>/);
   assert.doesNotMatch(html, /<h2>&lt;script&gt;/);
   assert.match(html, /Session &lt;script&gt;…/);
   assert.match(html, /&lt;script&gt;alert\(&quot;session&quot;\)&lt;\/script&gt;/);
@@ -91,7 +95,7 @@ test("session identity and timestamps use leadership-first labels with audit det
   assert.match(html, /Generated July 21, 2026 at 12:53 AM UTC · 1 recorded session/);
   assert.match(html, /Evaluated July 20, 2026 at 10:00 PM UTC/);
   assert.match(html, /A validated, evidence-backed analysis is ready\./);
-  assert.match(html, />Open leadership report<\/a>/);
+  assert.match(html, /class="primary-action"[^>]*>Open leadership report<\/a>/);
 });
 
 test("null session identity stays neutral and generated timestamp fallback is escaped", () => {
