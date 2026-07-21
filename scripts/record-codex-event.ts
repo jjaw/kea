@@ -8,10 +8,14 @@ import {
   unlinkSync
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import {
+  refreshPendingSessionMarker,
+  type PendingSessionMarker
+} from "../src/automatic-session-store.ts";
 
 const HookPayloadSchema = z
   .object({
@@ -55,6 +59,26 @@ const GIT_TIMEOUT_MS = 1_000;
 const GIT_MAX_BUFFER_BYTES = 16 * 1024 * 1024;
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const PROJECT_ROOT = resolve(dirname(SCRIPT_PATH), "..");
+const AUTOMATIC_WORKER_PATH = join(
+  dirname(SCRIPT_PATH),
+  "automatic-session-worker.ts"
+);
+
+export type DetachedWorkerChild = {
+  once(event: "error", listener: (error: Error) => void): unknown;
+  unref(): void;
+};
+
+export type AutomaticWorkerSpawner = (
+  command: string,
+  args: string[],
+  options: {
+    cwd: string;
+    detached: true;
+    stdio: "ignore";
+    env: NodeJS.ProcessEnv;
+  }
+) => DetachedWorkerChild;
 
 export function parseHookPayload(raw: string): ParsedPayload {
   let payload: unknown;
@@ -179,6 +203,86 @@ export function appendCapturedRecord(
   return outputPath;
 }
 
+export function launchAutomaticSessionWorker(
+  projectRoot: string,
+  marker: PendingSessionMarker,
+  spawnWorker: AutomaticWorkerSpawner = defaultWorkerSpawner
+): boolean {
+  try {
+    const child = spawnWorker(
+      process.execPath,
+      [
+        AUTOMATIC_WORKER_PATH,
+        marker.sessionStorageKey,
+        marker.pendingToken
+      ],
+      {
+        cwd: projectRoot,
+        detached: true,
+        stdio: "ignore",
+        env: process.env
+      }
+    );
+    child.once("error", () => {
+      // Session recording is already durable. Detached launch errors are
+      // observational and must never affect Codex.
+    });
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function recordCodexEvent(options: {
+  raw: string;
+  cwd: string;
+  projectRoot: string;
+  now?: Date;
+  refreshPending?: typeof refreshPendingSessionMarker;
+  launchWorker?: typeof launchAutomaticSessionWorker;
+}): {
+  outputPath: string;
+  pendingMarker: PendingSessionMarker | null;
+  workerLaunched: boolean;
+} {
+  const record = buildCapturedRecord(
+    options.raw,
+    options.cwd,
+    options.now ?? new Date()
+  );
+  const outputPath = appendCapturedRecord(options.projectRoot, record);
+  let pendingMarker: PendingSessionMarker | null = null;
+  let workerLaunched = false;
+
+  if (record.capture.eventName === "Stop") {
+    try {
+      const refreshed = (
+        options.refreshPending ?? refreshPendingSessionMarker
+      )(options.projectRoot, {
+        sessionStorageKey: sessionDirectoryName(
+          record.capture.sessionId ?? undefined
+        ),
+        sessionId: record.capture.sessionId,
+        stoppedAt: record.capture.capturedAt
+      });
+      pendingMarker = refreshed.marker;
+      try {
+        workerLaunched = (
+          options.launchWorker ?? launchAutomaticSessionWorker
+        )(options.projectRoot, refreshed.marker);
+      } catch {
+        workerLaunched = false;
+      }
+    } catch {
+      // The captured Stop remains durable even if automatic handoff cannot be
+      // scheduled. A later Stop may refresh the pending state successfully.
+    }
+  }
+
+  return { outputPath, pendingMarker, workerLaunched };
+}
+
 function updateLatestSessionPointer(
   rootDirectory: string,
   sessionDirectory: string
@@ -230,12 +334,17 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+const defaultWorkerSpawner: AutomaticWorkerSpawner = (
+  command,
+  args,
+  options
+) => spawn(command, args, options);
+
 function main(): void {
   try {
     const raw = readFileSync(0, "utf8");
     const cwd = process.cwd();
-    const record = buildCapturedRecord(raw, cwd);
-    appendCapturedRecord(PROJECT_ROOT, record);
+    recordCodexEvent({ raw, cwd, projectRoot: PROJECT_ROOT });
   } catch (error) {
     // Recording is observational and must never affect the Codex session.
     if (process.env.CODEX_OBSERVER_DEBUG === "1") {

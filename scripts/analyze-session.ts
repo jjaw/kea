@@ -1,19 +1,14 @@
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AnalysisSchema } from "../src/analysis-definitions.ts";
 import type {
   AnalysisProvider,
   AnalysisProviderResult
 } from "../src/analysis-provider.ts";
-import { serializeError } from "../src/analysis-provider.ts";
-import { renderAnalysisReport } from "../src/analysis-report.ts";
-import { renderAnalysisHtmlReport } from "../src/analysis-html-report.ts";
 import {
   AnalysisRunStageError,
   persistAnalysisRun,
   serializeJson,
-  validateAndPersistAnalysisRun,
   type AnalysisRunArtifacts
 } from "../src/analysis-run-store.ts";
 import { readCodexSessionFile } from "../src/codex-session-adapter.ts";
@@ -24,6 +19,7 @@ import {
   type EvidenceCorpusStatus
 } from "../src/evidence-bundle.ts";
 import { OpenAIAnalysisProvider } from "../src/openai-analysis-provider.ts";
+import { runProviderAnalysisForBundle } from "../src/provider-analysis-run.ts";
 import { rebuildStaticReportIndex } from "../src/report-index.ts";
 import {
   buildStructuralSessionReceipt,
@@ -111,77 +107,15 @@ export async function runLiveAnalysis(options: {
   const { root, bundle } = loadEvidenceBundle(options.projectRoot, selector);
   const corpusStatus = measureEvidenceCorpus(bundle);
   const now = options.now ?? new Date();
-  if (!corpusStatus.eligibleForSingleRequest) {
-    return persistOversizedRun(root, bundle, selector, corpusStatus);
-  }
-  let providerResult: AnalysisProviderResult;
-
-  try {
-    providerResult = await options.provider.analyze(bundle);
-  } catch (error) {
-    providerResult = {
-      kind: "request_failed",
-      error: serializeError(error),
-      metadata: {
-        provider: "unknown",
-        model: "unknown",
-        reasoningEffort: "unknown",
-        store: false,
-        requestedAt: now.toISOString(),
-        completedAt: new Date().toISOString()
-      }
-    };
-  }
-
-  if (providerResult.kind !== "success") {
-    return persistFailure(root, bundle, selector, providerResult, corpusStatus);
-  }
-
-  const parsedCandidate = AnalysisSchema.safeParse(providerResult.candidate);
-  if (!parsedCandidate.success) {
-    return persistFailure(
-      root,
-      bundle,
-      selector,
-      {
-        kind: "schema_invalid",
-        error: serializeError(parsedCandidate.error),
-        metadata: providerResult.metadata,
-        rawResponse: providerResult.rawResponse
-      },
-      corpusStatus,
-      providerResult.candidate
-    );
-  }
-
-  const persisted = validateAndPersistAnalysisRun(
-    root,
+  const providerRun = await runProviderAnalysisForBundle({
+    projectRoot: root,
     bundle,
-    parsedCandidate.data,
+    selector,
+    provider: options.provider,
     now,
-    {
-      candidateAnalysis: providerResult.candidate,
-      providerResponse: providerResult.rawResponse,
-      metadata: runMetadata(
-        bundle,
-        selector,
-        "completed",
-        providerResult,
-        corpusStatus
-      ),
-      renderMarkdown: (analysis, summary, runId) =>
-        renderAnalysisReport(bundle, analysis, summary, runId),
-      renderHtml: (analysis, summary, runId) =>
-        renderAnalysisHtmlReport(bundle, analysis, summary, runId)
-    }
-  );
-
-  if (persisted.artifacts.htmlReportPath === null) {
-    throw new AnalysisRunStageError(
-      "html_rendering_or_persistence",
-      "HTML report persistence did not produce report.html"
-    );
-  }
+    corpusStatus
+  });
+  if (providerRun.kind === "failure") return providerRun;
 
   const receipt = buildStructuralSessionReceipt(
     bundle,
@@ -193,7 +127,7 @@ export async function runLiveAnalysis(options: {
     persistedDisposition = persistLatestSessionDisposition(
       root,
       createFullReportDisposition(receipt, {
-        runId: persisted.artifacts.runId,
+        runId: providerRun.artifacts.runId,
         analysisArtifact: "analysis.json",
         validationSummaryArtifact: "validation-summary.json",
         renderedArtifacts: {
@@ -206,7 +140,7 @@ export async function runLiveAnalysis(options: {
     throw new ManualAnalysisIntegrationError(
       "final_disposition_persistence",
       `Final full-report disposition persistence failed: ${error instanceof Error ? error.message : String(error)}`,
-      persisted.artifacts,
+      providerRun.artifacts,
       undefined,
       { cause: error }
     );
@@ -219,7 +153,7 @@ export async function runLiveAnalysis(options: {
     throw new ManualAnalysisIntegrationError(
       "report_index_rebuild",
       `Static report inbox rebuilding failed: ${error instanceof Error ? error.message : String(error)}`,
-      persisted.artifacts,
+      providerRun.artifacts,
       persistedDisposition.path,
       { cause: error }
     );
@@ -227,12 +161,8 @@ export async function runLiveAnalysis(options: {
 
   return {
     kind: "success",
-    artifacts: persisted.artifacts,
-    summary: {
-      rejectedCount: persisted.summary.rejectedCount,
-      downgradedCount: persisted.summary.downgradedCount,
-      amendedCount: persisted.summary.amendedCount
-    },
+    artifacts: providerRun.artifacts,
+    summary: providerRun.summary,
     dispositionPath: persistedDisposition.path,
     indexPath: rebuiltIndex.path
   };
@@ -323,105 +253,6 @@ export async function runAnalyzeCommand(options: {
     stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   }
-}
-
-function persistFailure(
-  root: string,
-  bundle: EvidenceBundle,
-  selector: string,
-  result: Exclude<AnalysisProviderResult, { kind: "success" }>,
-  corpusStatus: EvidenceCorpusStatus,
-  candidate?: unknown
-): LiveAnalysisResult {
-  const message = failureMessage(result);
-  const artifacts = persistAnalysisRun(root, bundle, {
-    candidateAnalysis: candidate,
-    providerResponse: result.rawResponse,
-    providerError: failureDetails(result),
-    metadata: runMetadata(bundle, selector, "failed", result, corpusStatus)
-  });
-  return { kind: "failure", failureKind: result.kind, message, artifacts };
-}
-
-function persistOversizedRun(
-  root: string,
-  bundle: EvidenceBundle,
-  selector: string,
-  corpusStatus: EvidenceCorpusStatus
-): LiveAnalysisResult {
-  const message =
-    `Complete sanitized session evidence is ${corpusStatus.serializedCorpusBytes} bytes, ` +
-    `which exceeds the ${corpusStatus.requestBudgetBytes}-byte single-request budget. ` +
-    "No evidence was omitted and no provider request was made. Chronological segmentation with complete coverage is required to analyze this session.";
-  const artifacts = persistAnalysisRun(root, bundle, {
-    providerError: {
-      kind: "bundle_too_large",
-      code: "bundle_too_large",
-      message,
-      ...corpusStatus,
-      requiredCapability: "complete_coverage_chronological_segmentation"
-    },
-    metadata: {
-      ...corpusMetadata(bundle, selector, "live", "failed", corpusStatus),
-      resultKind: "bundle_too_large",
-      diagnostic: {
-        code: "bundle_too_large",
-        requiredCapability: "complete_coverage_chronological_segmentation"
-      }
-    }
-  });
-  return {
-    kind: "failure",
-    failureKind: "bundle_too_large",
-    message,
-    artifacts
-  };
-}
-
-function failureMessage(
-  result: Exclude<AnalysisProviderResult, { kind: "success" }>
-): string {
-  switch (result.kind) {
-    case "refusal":
-      return result.refusal;
-    case "incomplete":
-      return `Provider response was incomplete${result.reason ? `: ${result.reason}` : "."}`;
-    case "missing_parsed_output":
-      return result.message;
-    case "schema_invalid":
-    case "request_failed":
-      return result.error.message;
-  }
-}
-
-function failureDetails(
-  result: Exclude<AnalysisProviderResult, { kind: "success" }>
-): Record<string, unknown> {
-  switch (result.kind) {
-    case "refusal":
-      return { kind: result.kind, refusal: result.refusal };
-    case "incomplete":
-      return { kind: result.kind, reason: result.reason };
-    case "missing_parsed_output":
-      return { kind: result.kind, message: result.message };
-    case "schema_invalid":
-    case "request_failed":
-      return { kind: result.kind, error: result.error };
-  }
-}
-
-function runMetadata(
-  bundle: EvidenceBundle,
-  selector: string,
-  status: "completed" | "failed",
-  result: AnalysisProviderResult,
-  corpusStatus: EvidenceCorpusStatus
-): Record<string, unknown> {
-  return {
-    ...corpusMetadata(bundle, selector, "live", status, corpusStatus),
-    resultKind: result.kind,
-    provider: result.metadata
-  };
 }
 
 function corpusMetadata(

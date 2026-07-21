@@ -225,6 +225,13 @@ export type ValidatedRunReference = z.infer<
   typeof ValidatedRunReferenceSchema
 >;
 export type AnalysisFailureReason = z.infer<typeof AnalysisFailureReasonSchema>;
+export type StructuralAutomaticAnalysisDecision =
+  | Extract<AutomaticAnalysisDecision, { kind: "activity_only" | "blocked" }>
+  | {
+      kind: "eligible";
+      reason: z.infer<typeof AutomaticAnalyzeReasonSchema>;
+      receipt: StructuralSessionReceipt;
+    };
 
 export function assessAutomaticAnalysis(options: {
   bundle: EvidenceBundle;
@@ -232,11 +239,41 @@ export function assessAutomaticAnalysis(options: {
   environment: AutomaticAnalysisEnvironment;
   evaluatedAt: string;
 }): AutomaticAnalysisDecision {
-  const bundle = EvidenceBundleSchema.parse(options.bundle);
-  const corpusStatus = validateCorpusStatus(bundle, options.corpusStatus);
+  const structuralDecision = assessAutomaticAnalysisStructure(options);
+  if (structuralDecision.kind !== "eligible") {
+    return AutomaticAnalysisDecisionSchema.parse(structuralDecision);
+  }
   const environment = AutomaticAnalysisEnvironmentSchema.parse(
     options.environment
   );
+  if (!environment.automaticAnalysisEnabled) {
+    return AutomaticAnalysisDecisionSchema.parse({
+      kind: "blocked",
+      reason: "automatic_analysis_not_enabled",
+      receipt: structuralDecision.receipt
+    });
+  }
+  if (!environment.apiKeyAvailable) {
+    return AutomaticAnalysisDecisionSchema.parse({
+      kind: "blocked",
+      reason: "missing_api_key",
+      receipt: structuralDecision.receipt
+    });
+  }
+  return AutomaticAnalysisDecisionSchema.parse({
+    kind: "analyze",
+    reason: structuralDecision.reason,
+    receipt: structuralDecision.receipt
+  });
+}
+
+export function assessAutomaticAnalysisStructure(options: {
+  bundle: EvidenceBundle;
+  corpusStatus: EvidenceCorpusStatus;
+  evaluatedAt: string;
+}): StructuralAutomaticAnalysisDecision {
+  const bundle = EvidenceBundleSchema.parse(options.bundle);
+  const corpusStatus = validateCorpusStatus(bundle, options.corpusStatus);
   const receipt = buildStructuralSessionReceipt(
     bundle,
     corpusStatus,
@@ -245,38 +282,32 @@ export function assessAutomaticAnalysis(options: {
   const eligibilityReason = structuralEligibilityReason(receipt);
 
   if (eligibilityReason === null) {
-    return AutomaticAnalysisDecisionSchema.parse({
+    const decision = AutomaticAnalysisDecisionSchema.parse({
       kind: "activity_only",
       reason: "insufficient_structural_evidence",
       receipt
     });
+    if (decision.kind !== "activity_only") {
+      throw new Error("Structural activity decision parsed inconsistently");
+    }
+    return decision;
   }
   if (!corpusStatus.eligibleForSingleRequest) {
-    return AutomaticAnalysisDecisionSchema.parse({
+    const decision = AutomaticAnalysisDecisionSchema.parse({
       kind: "blocked",
       reason: "bundle_too_large",
       receipt
     });
+    if (decision.kind !== "blocked") {
+      throw new Error("Structural blocked decision parsed inconsistently");
+    }
+    return decision;
   }
-  if (!environment.automaticAnalysisEnabled) {
-    return AutomaticAnalysisDecisionSchema.parse({
-      kind: "blocked",
-      reason: "automatic_analysis_not_enabled",
-      receipt
-    });
-  }
-  if (!environment.apiKeyAvailable) {
-    return AutomaticAnalysisDecisionSchema.parse({
-      kind: "blocked",
-      reason: "missing_api_key",
-      receipt
-    });
-  }
-  return AutomaticAnalysisDecisionSchema.parse({
-    kind: "analyze",
+  return {
+    kind: "eligible",
     reason: eligibilityReason,
     receipt
-  });
+  };
 }
 
 export function buildStructuralSessionReceipt(

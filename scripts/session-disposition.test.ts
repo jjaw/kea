@@ -117,6 +117,22 @@ test("one question is activity_only before transport or environmental checks", (
   assert.equal(decision.receipt.counts.toolResults, 0);
 });
 
+test("structurally insufficient activity does not evaluate the automatic environment", () => {
+  const evidence = questionBundle();
+  const decision = assessAutomaticAnalysis({
+    bundle: evidence,
+    corpusStatus: measureEvidenceCorpus(evidence),
+    environment: {
+      automaticAnalysisEnabled: "not-a-boolean",
+      apiKeyAvailable: "not-a-boolean"
+    } as unknown as typeof AVAILABLE_ENVIRONMENT,
+    evaluatedAt: EVALUATED_AT
+  });
+
+  assert.equal(decision.kind, "activity_only");
+  assert.equal(decision.reason, "insufficient_structural_evidence");
+});
+
 test("matched result activity inside a changed snapshot interval is counted", () => {
   const evidence = changedIntervalBundle();
   const decision = assess(evidence);
