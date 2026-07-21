@@ -292,12 +292,32 @@ test("public demo command reports credential-free generated paths", async () => 
   assert.equal(stderr.value(), "");
   assert.match(stdout.value(), /No credentials were used\./);
   assert.match(stdout.value(), /No network request was made\./);
-  assert.match(stdout.value(), /Evidence items: 105/);
-  assert.match(stdout.value(), /Serialized evidence corpus: 111102 bytes/);
-  assert.match(stdout.value(), /Validation: 1 rejected, 1 downgraded, 1 amended/);
-  assert.match(stdout.value(), /Leadership report: .*report\.html/);
-  assert.match(stdout.value(), /Report inbox: .*index\.html/);
-  assert.match(stdout.value(), /Open inbox: open ".*index\.html"/);
+  const outputLines = stdout.value().split("\n");
+  assert.equal(
+    outputLines.includes(
+      "Sanitized evidence prepared for analysis: 105 items, 111,102 bytes"
+    ),
+    true
+  );
+  assert.equal(
+    outputLines.includes(
+      "Validation safeguards applied: 1 rejected, 1 downgraded, 1 amended"
+    ),
+    true
+  );
+  assert.match(
+    stdout.value(),
+    /Leadership report: \.kea-demo-output\/\.codex-observer\/analysis-runs\/[^/]+\/report\.html/
+  );
+  assert.match(
+    stdout.value(),
+    /Report inbox: \.kea-demo-output\/\.codex-observer\/reports\/index\.html/
+  );
+  assert.match(
+    stdout.value(),
+    /Open inbox: open "\.kea-demo-output\/\.codex-observer\/reports\/index\.html"/
+  );
+  assert.equal(stdout.value().includes(projectRoot), false);
 
   const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
   assert.equal(packageJson.scripts.demo, "node scripts/demo.ts");

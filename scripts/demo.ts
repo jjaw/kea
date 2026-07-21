@@ -1,4 +1,5 @@
-import { dirname, join, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runReferenceDemo } from "../src/reference-demo.ts";
 
@@ -19,24 +20,27 @@ export async function runDemoCommand(options: {
 } = {}): Promise<number> {
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
+  const projectRoot = options.projectRoot ?? PROJECT_ROOT;
   try {
+    const displayRoot = realpathSync(projectRoot);
     const result = await runReferenceDemo({
-      projectRoot: options.projectRoot ?? PROJECT_ROOT,
+      projectRoot,
       fixtureDirectory: options.fixtureDirectory ?? FIXTURE_DIRECTORY
     });
+    const reportPath = displayPath(displayRoot, result.reportPath);
+    const indexPath = displayPath(displayRoot, result.indexPath);
     stdout.write("Kea reference demo completed.\n");
     stdout.write("No credentials were used.\n");
     stdout.write("No network request was made.\n");
-    stdout.write(`Evidence items: ${result.evidenceCount}\n`);
     stdout.write(
-      `Serialized evidence corpus: ${result.serializedCorpusBytes} bytes\n`
+      `Sanitized evidence prepared for analysis: ${result.evidenceCount} items, ${result.serializedCorpusBytes.toLocaleString("en-US")} bytes\n`
     );
     stdout.write(
-      `Validation: ${result.validationAudit.rejectedCount} rejected, ${result.validationAudit.downgradedCount} downgraded, ${result.validationAudit.amendedCount} amended\n`
+      `Validation safeguards applied: ${result.validationAudit.rejectedCount} rejected, ${result.validationAudit.downgradedCount} downgraded, ${result.validationAudit.amendedCount} amended\n`
     );
-    stdout.write(`Leadership report: ${result.reportPath}\n`);
-    stdout.write(`Report inbox: ${result.indexPath}\n`);
-    stdout.write(`Open inbox: open ${JSON.stringify(result.indexPath)}\n`);
+    stdout.write(`Leadership report: ${reportPath}\n`);
+    stdout.write(`Report inbox: ${indexPath}\n`);
+    stdout.write(`Open inbox: open ${JSON.stringify(indexPath)}\n`);
     return 0;
   } catch (error) {
     stderr.write(
@@ -44,6 +48,10 @@ export async function runDemoCommand(options: {
     );
     return 1;
   }
+}
+
+function displayPath(projectRoot: string, path: string): string {
+  return relative(projectRoot, path).replaceAll("\\", "/");
 }
 
 async function main(): Promise<void> {
