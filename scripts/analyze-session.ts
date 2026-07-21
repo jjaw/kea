@@ -1,10 +1,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type {
-  AnalysisProvider,
-  AnalysisProviderResult
-} from "../src/analysis-provider.ts";
+import type { AnalysisProvider } from "../src/analysis-provider.ts";
 import {
   AnalysisRunStageError,
   persistAnalysisRun,
@@ -19,65 +16,20 @@ import {
   type EvidenceCorpusStatus
 } from "../src/evidence-bundle.ts";
 import { OpenAIAnalysisProvider } from "../src/openai-analysis-provider.ts";
-import { runProviderAnalysisForBundle } from "../src/provider-analysis-run.ts";
-import { rebuildStaticReportIndex } from "../src/report-index.ts";
 import {
-  buildStructuralSessionReceipt,
-  createFullReportDisposition
-} from "../src/session-disposition.ts";
-import { persistLatestSessionDisposition } from "../src/session-disposition-store.ts";
+  RecordingAnalysisIntegrationError,
+  runAnalysisForRecording,
+  type RecordingAnalysisResult
+} from "../src/recording-analysis-run.ts";
 import { generateSessionReport } from "./report-session.ts";
 import { resolveSessionFile } from "./report-session.ts";
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const PROJECT_ROOT = resolve(dirname(SCRIPT_PATH), "..");
 
-export type LiveAnalysisResult =
-  | {
-      kind: "success";
-      artifacts: AnalysisRunArtifacts;
-      summary: {
-        rejectedCount: number;
-        downgradedCount: number;
-        amendedCount: number;
-      };
-      dispositionPath: string;
-      indexPath: string;
-    }
-  | {
-      kind: "failure";
-      failureKind:
-        | Exclude<AnalysisProviderResult["kind"], "success">
-        | "bundle_too_large";
-      message: string;
-      artifacts: AnalysisRunArtifacts;
-    };
+export type LiveAnalysisResult = RecordingAnalysisResult;
 
 type Output = { write(value: string): unknown };
-
-export class ManualAnalysisIntegrationError extends Error {
-  readonly stage:
-    | "final_disposition_persistence"
-    | "report_index_rebuild";
-  readonly artifacts: AnalysisRunArtifacts;
-  readonly dispositionPath?: string;
-
-  constructor(
-    stage:
-      | "final_disposition_persistence"
-      | "report_index_rebuild",
-    message: string,
-    artifacts: AnalysisRunArtifacts,
-    dispositionPath?: string,
-    options?: { cause?: unknown }
-  ) {
-    super(message, options);
-    this.name = "ManualAnalysisIntegrationError";
-    this.stage = stage;
-    this.artifacts = artifacts;
-    this.dispositionPath = dispositionPath;
-  }
-}
 
 export function generateDryRun(
   projectRoot: string,
@@ -104,68 +56,15 @@ export async function runLiveAnalysis(options: {
   now?: Date;
 }): Promise<LiveAnalysisResult> {
   const selector = options.selector ?? "latest";
-  const { root, bundle } = loadEvidenceBundle(options.projectRoot, selector);
-  const corpusStatus = measureEvidenceCorpus(bundle);
-  const now = options.now ?? new Date();
-  const providerRun = await runProviderAnalysisForBundle({
+  const root = realpathSync(options.projectRoot);
+  const recordingPath = resolveSessionFile(root, selector);
+  return runAnalysisForRecording({
     projectRoot: root,
-    bundle,
+    recordingPath,
     selector,
     provider: options.provider,
-    now,
-    corpusStatus
+    now: options.now
   });
-  if (providerRun.kind === "failure") return providerRun;
-
-  const receipt = buildStructuralSessionReceipt(
-    bundle,
-    corpusStatus,
-    now.toISOString()
-  );
-  let persistedDisposition;
-  try {
-    persistedDisposition = persistLatestSessionDisposition(
-      root,
-      createFullReportDisposition(receipt, {
-        runId: providerRun.artifacts.runId,
-        analysisArtifact: "analysis.json",
-        validationSummaryArtifact: "validation-summary.json",
-        renderedArtifacts: {
-          markdown: "report.md",
-          html: "report.html"
-        }
-      })
-    );
-  } catch (error) {
-    throw new ManualAnalysisIntegrationError(
-      "final_disposition_persistence",
-      `Final full-report disposition persistence failed: ${error instanceof Error ? error.message : String(error)}`,
-      providerRun.artifacts,
-      undefined,
-      { cause: error }
-    );
-  }
-
-  let rebuiltIndex;
-  try {
-    rebuiltIndex = rebuildStaticReportIndex(root, now);
-  } catch (error) {
-    throw new ManualAnalysisIntegrationError(
-      "report_index_rebuild",
-      `Static report inbox rebuilding failed: ${error instanceof Error ? error.message : String(error)}`,
-      providerRun.artifacts,
-      persistedDisposition.path,
-      { cause: error }
-    );
-  }
-
-  return {
-    kind: "success",
-    artifacts: providerRun.artifacts,
-    summary: providerRun.summary,
-    dispositionPath: persistedDisposition.path,
-    indexPath: rebuiltIndex.path
-  };
 }
 
 export async function runAnalyzeCommand(options: {
@@ -230,7 +129,7 @@ export async function runAnalyzeCommand(options: {
     );
     return 0;
   } catch (error) {
-    if (error instanceof ManualAnalysisIntegrationError) {
+    if (error instanceof RecordingAnalysisIntegrationError) {
       stderr.write(`${error.message}\n`);
       if (error.artifacts.htmlReportPath !== null) {
         stderr.write(
