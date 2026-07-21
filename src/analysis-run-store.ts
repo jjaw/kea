@@ -2,18 +2,27 @@ import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
+  readFileSync,
+  realpathSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync
 } from "node:fs";
 import { join } from "node:path";
-import type { Analysis } from "./analysis-definitions.ts";
+import { AnalysisSchema, type Analysis } from "./analysis-definitions.ts";
+import { renderAnalysisHtmlReport } from "./analysis-html-report.ts";
 import {
+  ValidationSummarySchema,
   validateAnalysis,
   type ValidationResult,
   type ValidationSummary
 } from "./analysis-validator.ts";
-import type { EvidenceBundle } from "./evidence-bundle.ts";
+import {
+  EvidenceBundleSchema,
+  type EvidenceBundle
+} from "./evidence-bundle.ts";
+import { SafeAnalysisRunIdSchema } from "./session-disposition.ts";
 
 export type AnalysisRunArtifacts = {
   runId: string;
@@ -26,11 +35,30 @@ export type AnalysisRunArtifacts = {
   providerErrorPath: string | null;
   metadataPath: string | null;
   reportPath: string | null;
+  htmlReportPath: string | null;
 };
 
 export type PersistedValidationResult = ValidationResult & {
   artifacts: AnalysisRunArtifacts;
 };
+
+export class AnalysisRunStageError extends Error {
+  readonly stage:
+    | "validated_artifact_persistence"
+    | "html_rendering_or_persistence";
+
+  constructor(
+    stage:
+      | "validated_artifact_persistence"
+      | "html_rendering_or_persistence",
+    message: string,
+    options?: { cause?: unknown }
+  ) {
+    super(message, options);
+    this.name = "AnalysisRunStageError";
+    this.stage = stage;
+  }
+}
 
 export function createAnalysisRunId(now: Date = new Date()): string {
   return `${now.toISOString().replace(/[:.]/g, "-")}-${randomUUID()}`;
@@ -48,6 +76,7 @@ export function persistAnalysisRun(
     providerError?: unknown;
     metadata?: Record<string, unknown>;
     reportMarkdown?: string;
+    reportHtml?: string;
   } = {}
 ): AnalysisRunArtifacts {
   const runId = options.runId ?? createAnalysisRunId();
@@ -67,10 +96,10 @@ export function persistAnalysisRun(
     throw new Error("Validation summary run id does not match the analysis run");
   }
   if (
-    options.reportMarkdown !== undefined &&
+    (options.reportMarkdown !== undefined || options.reportHtml !== undefined) &&
     (options.analysis === undefined || options.validationSummary === undefined)
   ) {
-    throw new Error("A Markdown report requires validated analysis artifacts");
+    throw new Error("Rendered reports require validated analysis artifacts");
   }
 
   const directory = join(projectRoot, ".codex-observer", "analysis-runs", runId);
@@ -88,6 +117,7 @@ export function persistAnalysisRun(
   let providerErrorPath: string | null = null;
   let metadataPath: string | null = null;
   let reportPath: string | null = null;
+  let htmlReportPath: string | null = null;
 
   if (options.candidateAnalysis !== undefined) {
     candidateAnalysisPath = join(directory, "candidate-analysis.json");
@@ -115,6 +145,17 @@ export function persistAnalysisRun(
     reportPath = join(directory, "report.md");
     writeTextAtomically(reportPath, options.reportMarkdown);
   }
+  if (options.reportHtml !== undefined) {
+    try {
+      htmlReportPath = writeHtmlReport(directory, options.reportHtml);
+    } catch (error) {
+      throw new AnalysisRunStageError(
+        "html_rendering_or_persistence",
+        `HTML report persistence failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error }
+      );
+    }
+  }
 
   return {
     runId,
@@ -126,7 +167,8 @@ export function persistAnalysisRun(
     providerResponsePath,
     providerErrorPath,
     metadataPath,
-    reportPath
+    reportPath,
+    htmlReportPath
   };
 }
 
@@ -144,6 +186,11 @@ export function validateAndPersistAnalysisRun(
       summary: ValidationSummary,
       runId: string
     ) => string;
+    renderHtml?: (
+      analysis: Analysis,
+      summary: ValidationSummary,
+      runId: string
+    ) => string;
   } = {}
 ): PersistedValidationResult {
   const runId = createAnalysisRunId(now);
@@ -153,16 +200,73 @@ export function validateAndPersistAnalysisRun(
     result.summary,
     runId
   );
-  const artifacts = persistAnalysisRun(projectRoot, bundle, {
-    runId,
-    analysis: result.analysis,
-    validationSummary: result.summary,
-    candidateAnalysis: options.candidateAnalysis,
-    providerResponse: options.providerResponse,
-    metadata: options.metadata,
-    reportMarkdown
-  });
+  let reportHtml: string | undefined;
+  try {
+    reportHtml = options.renderHtml?.(
+      result.analysis,
+      result.summary,
+      runId
+    );
+  } catch (error) {
+    throw new AnalysisRunStageError(
+      "html_rendering_or_persistence",
+      `HTML report rendering failed: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
+    );
+  }
+  let artifacts: AnalysisRunArtifacts;
+  try {
+    artifacts = persistAnalysisRun(projectRoot, bundle, {
+      runId,
+      analysis: result.analysis,
+      validationSummary: result.summary,
+      candidateAnalysis: options.candidateAnalysis,
+      providerResponse: options.providerResponse,
+      metadata: options.metadata,
+      reportMarkdown,
+      reportHtml
+    });
+  } catch (error) {
+    if (error instanceof AnalysisRunStageError) throw error;
+    throw new AnalysisRunStageError(
+      "validated_artifact_persistence",
+      `Validated analysis artifact persistence failed: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
+    );
+  }
   return { ...result, artifacts };
+}
+
+export function regenerateStoredAnalysisHtmlReport(
+  projectRoot: string,
+  runIdInput: string
+): { runId: string; htmlReportPath: string; html: string } {
+  const root = realpathSync(projectRoot);
+  const runId = SafeAnalysisRunIdSchema.parse(runIdInput);
+  const directory = join(root, ".codex-observer", "analysis-runs", runId);
+  if (!existsSync(directory) || !statSync(directory).isDirectory()) {
+    throw new Error(`Analysis run directory does not exist: ${runId}`);
+  }
+
+  const bundle = EvidenceBundleSchema.parse(
+    readStoredJson(join(directory, "bundle.json"), "Sanitized evidence bundle")
+  );
+  const analysis = AnalysisSchema.parse(
+    readStoredJson(join(directory, "analysis.json"), "Validated analysis")
+  );
+  const summary = ValidationSummarySchema.parse(
+    readStoredJson(
+      join(directory, "validation-summary.json"),
+      "Validation summary"
+    )
+  );
+  if (summary.runId !== runId) {
+    throw new Error("Validation summary run id does not match the analysis run");
+  }
+
+  const html = renderAnalysisHtmlReport(bundle, analysis, summary, runId);
+  const htmlReportPath = writeHtmlReport(directory, html);
+  return { runId, htmlReportPath, html };
 }
 
 export function serializeJson(value: unknown): string {
@@ -171,6 +275,25 @@ export function serializeJson(value: unknown): string {
 
 function writeJsonAtomically(path: string, value: unknown): void {
   writeTextAtomically(path, serializeJson(value));
+}
+
+function writeHtmlReport(directory: string, html: string): string {
+  const htmlReportPath = join(directory, "report.html");
+  writeTextAtomically(htmlReportPath, html);
+  return htmlReportPath;
+}
+
+function readStoredJson(path: string, label: string): unknown {
+  if (!existsSync(path) || !statSync(path).isFile()) {
+    throw new Error(`${label} does not exist: ${path}`);
+  }
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `${label} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
 
 function writeTextAtomically(path: string, value: string): void {

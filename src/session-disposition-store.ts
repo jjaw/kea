@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   renameSync,
   statSync,
@@ -72,10 +73,50 @@ export function readLatestSessionDisposition(
     "latest.json"
   );
   if (!existsSync(path)) return null;
-  const disposition = FinalSessionDispositionSchema.parse(
-    JSON.parse(readFileSync(path, "utf8"))
-  );
+  const disposition = readDispositionFile(path, storageKey);
   return { disposition, storageKey, path };
+}
+
+export function listLatestSessionDispositions(
+  projectRoot: string
+): PersistedSessionDisposition[] {
+  const root = realpathSync(projectRoot);
+  const dispositionsRoot = join(
+    root,
+    ".codex-observer",
+    "session-dispositions"
+  );
+  if (!existsSync(dispositionsRoot)) return [];
+  if (!statSync(dispositionsRoot).isDirectory()) {
+    throw new Error("Session disposition storage root is not a directory");
+  }
+
+  return readdirSync(dispositionsRoot, { withFileTypes: true })
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map((entry) => {
+      if (!entry.isDirectory() || !SAFE_SESSION_ID.test(entry.name)) {
+        throw new Error(
+          `Invalid disposition storage entry: ${JSON.stringify(entry.name)}`
+        );
+      }
+      const storageKey = entry.name;
+      const path = join(dispositionsRoot, storageKey, "latest.json");
+      if (!existsSync(path) || !statSync(path).isFile()) {
+        throw new Error(
+          `Latest disposition is missing for storage key ${storageKey}`
+        );
+      }
+      const disposition = readDispositionFile(path, storageKey);
+      const expectedStorageKey = sessionDispositionStorageKey(
+        disposition.receipt
+      );
+      if (expectedStorageKey !== storageKey) {
+        throw new Error(
+          `Latest disposition identity does not match storage key ${storageKey}`
+        );
+      }
+      return { disposition, storageKey, path };
+    });
 }
 
 export function sessionDispositionStorageKey(
@@ -162,6 +203,21 @@ function readJsonFile(path: string, label: string): unknown {
   } catch (error) {
     throw new Error(
       `${label} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+function readDispositionFile(
+  path: string,
+  storageKey: string
+): FinalSessionDisposition {
+  try {
+    return FinalSessionDispositionSchema.parse(
+      JSON.parse(readFileSync(path, "utf8"))
+    );
+  } catch (error) {
+    throw new Error(
+      `Invalid latest disposition for storage key ${storageKey}: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 }

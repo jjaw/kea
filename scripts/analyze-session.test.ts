@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -59,10 +60,20 @@ test("offline dry-run saves exactly the bundle it returns without analysis artif
   assert.equal(result.corpusStatus.eligibleForSingleRequest, true);
   assert.equal(result.artifacts.analysisPath, null);
   assert.equal(result.artifacts.validationSummaryPath, null);
+  assert.equal(result.artifacts.reportPath, null);
+  assert.equal(result.artifacts.htmlReportPath, null);
   assert.ok(result.artifacts.metadataPath);
+  assert.equal(
+    existsSync(join(root, ".codex-observer", "session-dispositions")),
+    false
+  );
+  assert.equal(
+    existsSync(join(root, ".codex-observer", "reports", "index.html")),
+    false
+  );
 });
 
-test("live pipeline re-validates, deterministically validates, persists one run, and renders Markdown", async () => {
+test("live pipeline persists validated Markdown and HTML, a full_report disposition, and the static inbox", async () => {
   const root = sessionFixture("session-live");
   const candidate = candidateAnalysis();
   const result = await runLiveAnalysis({
@@ -89,7 +100,10 @@ test("live pipeline re-validates, deterministically validates, persists one run,
     result.artifacts.analysisPath,
     result.artifacts.validationSummaryPath,
     result.artifacts.metadataPath,
-    result.artifacts.reportPath
+    result.artifacts.reportPath,
+    result.artifacts.htmlReportPath,
+    result.dispositionPath,
+    result.indexPath
   ]) {
     assert.ok(path && existsSync(path));
   }
@@ -125,6 +139,23 @@ test("live pipeline re-validates, deterministically validates, persists one run,
   assert.match(report, /Observed basis was not supported/);
   assert.match(report, /`E1`/);
   assert.match(report, /`E999`/);
+
+  const html = readFileSync(result.artifacts.htmlReportPath ?? "", "utf8");
+  assert.match(html, /Kea leadership report/);
+  assert.match(html, /What outcome is independently supported/);
+  assert.match(html, /Validation audit/);
+  const disposition = JSON.parse(readFileSync(result.dispositionPath, "utf8"));
+  assert.equal(disposition.kind, "full_report");
+  assert.equal(disposition.validatedRun.runId, result.artifacts.runId);
+  assert.deepEqual(disposition.validatedRun.renderedArtifacts, {
+    markdown: "report.md",
+    html: "report.html"
+  });
+  const index = readFileSync(result.indexPath, "utf8");
+  assert.match(
+    index,
+    new RegExp(`\\.\\.\\/analysis-runs\\/${result.artifacts.runId}\\/report\\.html`)
+  );
 });
 
 test("refusal, incomplete response, schema-invalid output, and API failure persist diagnostics without validation", async (t) => {
@@ -191,6 +222,7 @@ test("refusal, incomplete response, schema-invalid output, and API failure persi
       assert.equal(result.artifacts.analysisPath, null);
       assert.equal(result.artifacts.validationSummaryPath, null);
       assert.equal(result.artifacts.reportPath, null);
+      assert.equal(result.artifacts.htmlReportPath, null);
     });
   }
 
@@ -244,6 +276,11 @@ test("missing API key prints deterministic fallback, exits zero, and creates no 
   assert.match(stdout.value, /# Codex Session Report/);
   assert.equal(stderr.value, "");
   assert.equal(existsSync(join(root, ".codex-observer", "analysis-runs")), false);
+  assert.equal(existsSync(join(root, ".codex-observer", "session-dispositions")), false);
+  assert.equal(
+    existsSync(join(root, ".codex-observer", "reports", "index.html")),
+    false
+  );
 });
 
 test("oversized live run preserves the corpus, skips the provider, and persists bundle_too_large", async () => {
@@ -273,6 +310,7 @@ test("oversized live run preserves the corpus, skips the provider, and persists 
   assert.equal(result.artifacts.analysisPath, null);
   assert.equal(result.artifacts.validationSummaryPath, null);
   assert.equal(result.artifacts.reportPath, null);
+  assert.equal(result.artifacts.htmlReportPath, null);
 
   const bundle = JSON.parse(readFileSync(result.artifacts.bundlePath, "utf8"));
   const metadata = JSON.parse(
@@ -358,6 +396,8 @@ test("live analyze command uses latest by default and prints report path plus va
   assert.equal(exitCode, 0);
   assert.equal(receivedApiKey, "test-api-key");
   assert.match(stdout.value, /Report saved to .*report\.md/);
+  assert.match(stdout.value, /HTML report saved to .*report\.html/);
+  assert.match(stdout.value, /Report inbox saved to .*index\.html/);
   assert.match(
     stdout.value,
     /Validation: 1 rejected, \d+ downgraded, 0 amended\./
@@ -390,6 +430,119 @@ test("repeated live analyses create separate complete run scopes", async () => {
   assert.notEqual(first.artifacts.directory, second.artifacts.directory);
   assert.ok(first.artifacts.reportPath && existsSync(first.artifacts.reportPath));
   assert.ok(second.artifacts.reportPath && existsSync(second.artifacts.reportPath));
+  assert.ok(
+    first.artifacts.htmlReportPath && existsSync(first.artifacts.htmlReportPath)
+  );
+  assert.ok(
+    second.artifacts.htmlReportPath && existsSync(second.artifacts.htmlReportPath)
+  );
+  if (second.kind !== "success") return;
+  const index = readFileSync(second.indexPath, "utf8");
+  assert.match(index, new RegExp(second.artifacts.runId));
+  if (first.kind === "success") {
+    assert.doesNotMatch(index, new RegExp(first.artifacts.runId));
+  }
+});
+
+test("manual index failure reports the existing HTML and disposition without claiming inbox success", async () => {
+  const root = sessionFixture("session-index-failure");
+  const reportsDirectory = join(root, ".codex-observer", "reports");
+  const indexPath = join(reportsDirectory, "index.html");
+  mkdirSync(reportsDirectory, { recursive: true });
+  writeFileSync(indexPath, "prior-valid-index", "utf8");
+  chmodSync(reportsDirectory, 0o500);
+  const stdout = bufferOutput();
+  const stderr = bufferOutput();
+
+  try {
+    const exitCode = await runAnalyzeCommand({
+      projectRoot: root,
+      args: ["session-index-failure"],
+      env: { OPENAI_API_KEY: "test-api-key" },
+      stdout,
+      stderr,
+      providerFactory: () =>
+        providerResult({
+          kind: "success",
+          candidate: candidateAnalysis(),
+          rawResponse: { id: "resp_index_failure" },
+          metadata: providerMetadata()
+        }),
+      now: new Date("2026-07-20T04:00:00.000Z")
+    });
+
+    assert.equal(exitCode, 1);
+    assert.equal(stdout.value, "");
+    assert.match(stderr.value, /Static report inbox rebuilding failed/);
+    assert.match(stderr.value, /HTML report exists at .*report\.html/);
+    assert.match(stderr.value, /Full-report disposition exists at .*latest\.json/);
+    assert.match(stderr.value, /not successfully added to the report inbox/);
+    assert.equal(readFileSync(indexPath, "utf8"), "prior-valid-index");
+  } finally {
+    chmodSync(reportsDirectory, 0o700);
+  }
+});
+
+test("manual final-disposition failure reports the existing HTML and creates no inbox", async () => {
+  const root = sessionFixture("session-disposition-failure");
+  writeFileSync(
+    join(root, ".codex-observer", "session-dispositions"),
+    "not a directory",
+    "utf8"
+  );
+  const stdout = bufferOutput();
+  const stderr = bufferOutput();
+  const exitCode = await runAnalyzeCommand({
+    projectRoot: root,
+    args: ["session-disposition-failure"],
+    env: { OPENAI_API_KEY: "test-api-key" },
+    stdout,
+    stderr,
+    providerFactory: () =>
+      providerResult({
+        kind: "success",
+        candidate: candidateAnalysis(),
+        rawResponse: { id: "resp_disposition_failure" },
+        metadata: providerMetadata()
+      })
+  });
+
+  assert.equal(exitCode, 1);
+  assert.equal(stdout.value, "");
+  assert.match(stderr.value, /Final full-report disposition persistence failed/);
+  assert.match(stderr.value, /HTML report exists at .*report\.html/);
+  assert.doesNotMatch(stderr.value, /Full-report disposition exists/);
+  assert.equal(existsSync(join(root, ".codex-observer", "reports")), false);
+});
+
+test("manual validated-artifact failure is stage-labeled and creates no full_report", async () => {
+  const root = sessionFixture("session-artifact-failure");
+  writeFileSync(
+    join(root, ".codex-observer", "analysis-runs"),
+    "not a directory",
+    "utf8"
+  );
+  const stdout = bufferOutput();
+  const stderr = bufferOutput();
+  const exitCode = await runAnalyzeCommand({
+    projectRoot: root,
+    args: ["session-artifact-failure"],
+    env: { OPENAI_API_KEY: "test-api-key" },
+    stdout,
+    stderr,
+    providerFactory: () =>
+      providerResult({
+        kind: "success",
+        candidate: candidateAnalysis(),
+        rawResponse: { id: "resp_artifact_failure" },
+        metadata: providerMetadata()
+      })
+  });
+
+  assert.equal(exitCode, 1);
+  assert.match(stderr.value, /validated_artifact_persistence/);
+  assert.match(stderr.value, /No report was successfully added/);
+  assert.equal(existsSync(join(root, ".codex-observer", "session-dispositions")), false);
 });
 
 function sessionFixture(sessionId: string): string {

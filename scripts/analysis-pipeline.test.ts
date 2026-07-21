@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -10,7 +10,9 @@ import {
   type CandidateAnalysis
 } from "../src/analysis-definitions.ts";
 import {
+  AnalysisRunStageError,
   persistAnalysisRun,
+  regenerateStoredAnalysisHtmlReport,
   validateAndPersistAnalysisRun
 } from "../src/analysis-run-store.ts";
 import { validateAnalysis } from "../src/analysis-validator.ts";
@@ -22,6 +24,7 @@ import {
   PROVIDER_REQUEST_BUDGET_BYTES
 } from "../src/evidence-bundle.ts";
 import { renderAnalysisReport } from "../src/analysis-report.ts";
+import { renderAnalysisHtmlReport } from "../src/analysis-html-report.ts";
 import { redactText } from "../src/redaction.ts";
 import { truncateHead, truncateHeadTail, utf8ByteLength } from "../src/truncation.ts";
 
@@ -665,7 +668,13 @@ test("persists bundle, validated analysis, and summary in unique private run sco
     root,
     bundle,
     goodAnalysis(),
-    new Date("2026-07-19T21:00:00.000Z")
+    new Date("2026-07-19T21:00:00.000Z"),
+    {
+      renderMarkdown: (analysis, summary, runId) =>
+        renderAnalysisReport(bundle, analysis, summary, runId),
+      renderHtml: (analysis, summary, runId) =>
+        renderAnalysisHtmlReport(bundle, analysis, summary, runId)
+    }
   );
   const first = firstResult.artifacts;
   const secondResult = validateAndPersistAnalysisRun(
@@ -686,6 +695,12 @@ test("persists bundle, validated analysis, and summary in unique private run sco
     firstResult.analysis
   );
   assert.equal(statSync(first.bundlePath).mode & 0o777, 0o600);
+  assert.ok(first.reportPath);
+  assert.ok(first.htmlReportPath);
+  assert.equal(statSync(first.reportPath).mode & 0o777, 0o600);
+  assert.equal(statSync(first.htmlReportPath).mode & 0o777, 0o600);
+  assert.match(readFileSync(first.reportPath, "utf8"), /^# Kea Session Analysis/);
+  assert.match(readFileSync(first.htmlReportPath, "utf8"), /^<!doctype html>/);
   const fixedResult = validateAnalysis(goodAnalysis(), bundle, "run-one");
   persistAnalysisRun(root, bundle, {
     runId: "run-one",
@@ -699,6 +714,63 @@ test("persists bundle, validated analysis, and summary in unique private run sco
       validationSummary: fixedResult.summary
     })
   );
+});
+
+test("HTML rendering failure is stage-labeled before the run is persisted", () => {
+  const root = mkdtempSync(join(tmpdir(), "kea-html-render-failure-"));
+  const bundle = fixtureBundle();
+
+  assert.throws(
+    () =>
+      validateAndPersistAnalysisRun(
+        root,
+        bundle,
+        goodAnalysis(),
+        new Date("2026-07-19T22:00:00.000Z"),
+        {
+          renderHtml: () => {
+            throw new Error("render failed");
+          }
+        }
+      ),
+    (error) =>
+      error instanceof AnalysisRunStageError &&
+      error.stage === "html_rendering_or_persistence" &&
+      /HTML report rendering failed/.test(error.message)
+  );
+  assert.equal(
+    existsSync(join(root, ".codex-observer", "analysis-runs")),
+    false
+  );
+});
+
+test("stored-run HTML regeneration parses trusted artifacts and writes only fixed report.html", () => {
+  const root = mkdtempSync(join(tmpdir(), "kea-html-regeneration-"));
+  const bundle = fixtureBundle();
+  const validated = validateAnalysis(goodAnalysis(), bundle, "stored-run");
+  const artifacts = persistAnalysisRun(root, bundle, {
+    runId: "stored-run",
+    analysis: validated.analysis,
+    validationSummary: validated.summary,
+    reportMarkdown: renderAnalysisReport(
+      bundle,
+      validated.analysis,
+      validated.summary,
+      "stored-run"
+    )
+  });
+
+  const regenerated = regenerateStoredAnalysisHtmlReport(root, "stored-run");
+  assert.equal(
+    regenerated.htmlReportPath.endsWith(
+      "/.codex-observer/analysis-runs/stored-run/report.html"
+    ),
+    true
+  );
+  assert.equal(readFileSync(regenerated.htmlReportPath, "utf8"), regenerated.html);
+  assert.equal(statSync(regenerated.htmlReportPath).mode & 0o777, 0o600);
+  assert.match(regenerated.html, /^<!doctype html>/);
+  assert.throws(() => regenerateStoredAnalysisHtmlReport(root, "../../outside"));
 });
 
 function fixtureBundle() {

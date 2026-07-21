@@ -8,7 +8,9 @@ import type {
 } from "../src/analysis-provider.ts";
 import { serializeError } from "../src/analysis-provider.ts";
 import { renderAnalysisReport } from "../src/analysis-report.ts";
+import { renderAnalysisHtmlReport } from "../src/analysis-html-report.ts";
 import {
+  AnalysisRunStageError,
   persistAnalysisRun,
   serializeJson,
   validateAndPersistAnalysisRun,
@@ -22,6 +24,12 @@ import {
   type EvidenceCorpusStatus
 } from "../src/evidence-bundle.ts";
 import { OpenAIAnalysisProvider } from "../src/openai-analysis-provider.ts";
+import { rebuildStaticReportIndex } from "../src/report-index.ts";
+import {
+  buildStructuralSessionReceipt,
+  createFullReportDisposition
+} from "../src/session-disposition.ts";
+import { persistLatestSessionDisposition } from "../src/session-disposition-store.ts";
 import { generateSessionReport } from "./report-session.ts";
 import { resolveSessionFile } from "./report-session.ts";
 
@@ -37,6 +45,8 @@ export type LiveAnalysisResult =
         downgradedCount: number;
         amendedCount: number;
       };
+      dispositionPath: string;
+      indexPath: string;
     }
   | {
       kind: "failure";
@@ -48,6 +58,30 @@ export type LiveAnalysisResult =
     };
 
 type Output = { write(value: string): unknown };
+
+export class ManualAnalysisIntegrationError extends Error {
+  readonly stage:
+    | "final_disposition_persistence"
+    | "report_index_rebuild";
+  readonly artifacts: AnalysisRunArtifacts;
+  readonly dispositionPath?: string;
+
+  constructor(
+    stage:
+      | "final_disposition_persistence"
+      | "report_index_rebuild",
+    message: string,
+    artifacts: AnalysisRunArtifacts,
+    dispositionPath?: string,
+    options?: { cause?: unknown }
+  ) {
+    super(message, options);
+    this.name = "ManualAnalysisIntegrationError";
+    this.stage = stage;
+    this.artifacts = artifacts;
+    this.dispositionPath = dispositionPath;
+  }
+}
 
 export function generateDryRun(
   projectRoot: string,
@@ -136,9 +170,60 @@ export async function runLiveAnalysis(options: {
         corpusStatus
       ),
       renderMarkdown: (analysis, summary, runId) =>
-        renderAnalysisReport(bundle, analysis, summary, runId)
+        renderAnalysisReport(bundle, analysis, summary, runId),
+      renderHtml: (analysis, summary, runId) =>
+        renderAnalysisHtmlReport(bundle, analysis, summary, runId)
     }
   );
+
+  if (persisted.artifacts.htmlReportPath === null) {
+    throw new AnalysisRunStageError(
+      "html_rendering_or_persistence",
+      "HTML report persistence did not produce report.html"
+    );
+  }
+
+  const receipt = buildStructuralSessionReceipt(
+    bundle,
+    corpusStatus,
+    now.toISOString()
+  );
+  let persistedDisposition;
+  try {
+    persistedDisposition = persistLatestSessionDisposition(
+      root,
+      createFullReportDisposition(receipt, {
+        runId: persisted.artifacts.runId,
+        analysisArtifact: "analysis.json",
+        validationSummaryArtifact: "validation-summary.json",
+        renderedArtifacts: {
+          markdown: "report.md",
+          html: "report.html"
+        }
+      })
+    );
+  } catch (error) {
+    throw new ManualAnalysisIntegrationError(
+      "final_disposition_persistence",
+      `Final full-report disposition persistence failed: ${error instanceof Error ? error.message : String(error)}`,
+      persisted.artifacts,
+      undefined,
+      { cause: error }
+    );
+  }
+
+  let rebuiltIndex;
+  try {
+    rebuiltIndex = rebuildStaticReportIndex(root, now);
+  } catch (error) {
+    throw new ManualAnalysisIntegrationError(
+      "report_index_rebuild",
+      `Static report inbox rebuilding failed: ${error instanceof Error ? error.message : String(error)}`,
+      persisted.artifacts,
+      persistedDisposition.path,
+      { cause: error }
+    );
+  }
 
   return {
     kind: "success",
@@ -147,7 +232,9 @@ export async function runLiveAnalysis(options: {
       rejectedCount: persisted.summary.rejectedCount,
       downgradedCount: persisted.summary.downgradedCount,
       amendedCount: persisted.summary.amendedCount
-    }
+    },
+    dispositionPath: persistedDisposition.path,
+    indexPath: rebuiltIndex.path
   };
 }
 
@@ -205,10 +292,34 @@ export async function runAnalyzeCommand(options: {
 
     stdout.write(`Report saved to ${displayPath(result.artifacts.reportPath ?? result.artifacts.directory)}\n`);
     stdout.write(
+      `HTML report saved to ${displayPath(result.artifacts.htmlReportPath ?? result.artifacts.directory)}\n`
+    );
+    stdout.write(`Report inbox saved to ${displayPath(result.indexPath)}\n`);
+    stdout.write(
       `Validation: ${result.summary.rejectedCount} rejected, ${result.summary.downgradedCount} downgraded, ${result.summary.amendedCount} amended.\n`
     );
     return 0;
   } catch (error) {
+    if (error instanceof ManualAnalysisIntegrationError) {
+      stderr.write(`${error.message}\n`);
+      if (error.artifacts.htmlReportPath !== null) {
+        stderr.write(
+          `HTML report exists at ${displayPath(error.artifacts.htmlReportPath)}\n`
+        );
+      }
+      if (error.dispositionPath !== undefined) {
+        stderr.write(
+          `Full-report disposition exists at ${displayPath(error.dispositionPath)}\n`
+        );
+      }
+      stderr.write("The report was not successfully added to the report inbox.\n");
+      return 1;
+    }
+    if (error instanceof AnalysisRunStageError) {
+      stderr.write(`${error.stage}: ${error.message}\n`);
+      stderr.write("No report was successfully added to the report inbox.\n");
+      return 1;
+    }
     stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   }
