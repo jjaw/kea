@@ -7,6 +7,8 @@ actually supported by evidence.
 **Kea does not just summarize a coding session. It checks whether the summary
 can be trusted.**
 
+<img width="1600" height="900" alt="Screenshot 2026-07-21 at 3 56 07 PM" src="https://github.com/user-attachments/assets/550b49e1-667e-4ea8-93ef-f60d0708a57a" />
+
 Kea is a lightweight, project-local companion for Codex CLI. It passively
 records observable activity, separates what Codex reported from what observable
 results independently support, and rejects or weakens findings that the
