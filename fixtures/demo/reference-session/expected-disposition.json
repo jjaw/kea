@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "kind": "full_report",
+  "reason": "validated_analysis_available",
+  "fixture": {
+    "sha256": "5119f23824586f63a03e2a56e18bac5e7e882031f3c8ad5c875db07a25f79de9",
+    "lineCount": 101
+  },
+  "receipt": {
+    "sessionId": "019f82cc-fc58-7c01-b499-c3c65c9734e9",
+    "evidenceStateHash": "72a9df4fe921b8725e4b2260ef09ea0e8191c3e007cad19d18a55f5a709e5f23",
+    "lastObservedActivityAt": "2026-07-21T04:30:36.096Z",
+    "corpus": {
+      "serializedCorpusBytes": 111102,
+      "requestBudgetBytes": 524288,
+      "totalEvidenceCount": 105,
+      "retainedEvidenceCount": 105,
+      "omittedEvidenceCount": 0,
+      "eligibleForSingleRequest": true
+    },
+    "counts": {
+      "humanMessages": 3,
+      "assistantMessages": 3,
+      "toolAttempts": 47,
+      "toolResults": 47,
+      "gitSnapshots": 4,
+      "matchedToolResults": 47,
+      "observableStructuredErrorResults": 0,
+      "distinctTurns": 3
+    },
+    "gitStateChangedBetweenSnapshots": true,
+    "matchedResultsBetweenChangedSnapshots": 30,
+    "hasMatchedResultsBetweenChangedSnapshots": true
+  },
+  "validatedRun": {
+    "runId": "<generated-run-id>",
+    "analysisArtifact": "analysis.json",
+    "validationSummaryArtifact": "validation-summary.json",
+    "renderedArtifacts": {
+      "markdown": "report.md",
+      "html": "report.html"
+    }
+  },
+  "validation": {
+    "successful": true,
+    "rejectedCount": 1,
+    "downgradedCount": 1,
+    "amendedCount": 1
+  },
+  "outputs": {
+    "reportFilename": "report.html",
+    "inboxFilename": "index.html",
+    "inboxEntryCount": 1
+  }
+}

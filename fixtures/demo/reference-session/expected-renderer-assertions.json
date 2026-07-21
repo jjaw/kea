@@ -1,0 +1,65 @@
+{
+  "report": {
+    "containsText": [
+      "Leadership summary",
+      "Build and verify only the fixture-independent foundation for Kea's credential-free Milestone 12 demo while deliberately deferring the approved sanitized fixture, public demo command, and completion claim.",
+      "What outcome is independently supported?",
+      "What captured evidence independently supports",
+      "Captured result and repository evidence supports that commit b685c95 contains the isolated demo-orchestration foundation, the working tree was clean, all 133 tests passed, and no final fixture or public demo package script had been added.",
+      "What Codex reported",
+      "Codex reported that the fixture-independent Milestone 12 foundation was committed and verified with 133 passing tests, while the final fixture-backed demo assets and command remained intentionally unfinished.",
+      "The human bounded the work to fixture-independent demo infrastructure, required design approval before edits, prohibited final fixture assets and completion claims, and required isolation from real observer data.",
+      "The human narrowed the approved design by deferring the public demo command and constraining the extracted boundary and output-root behavior.",
+      "The narrowing correction redirected the work from a broader preliminary demo proposal to the isolated fixture-independent orchestration that was subsequently implemented.",
+      "The recording cannot establish that the final credential-free reference demo works end to end because the approved fixture, deterministic expected outputs, and public demo command were intentionally deferred to later work.",
+      "The committed work is supported as a reviewable foundation rather than a completed Milestone 12 deliverable; release readiness still depends on adding and verifying the approved fixture-backed, credential-free demo.",
+      "E2",
+      "E37",
+      "E38",
+      "E42",
+      "E91",
+      "E94",
+      "E101",
+      "E101.git",
+      "1 rejected · 1 downgraded · 1 amended"
+    ],
+    "doesNotContainText": [
+      "A dispensable unsupported approach included to demonstrate rejection of a nonexistent citation."
+    ],
+    "forbiddenMarkup": [
+      "<script",
+      "javascript:",
+      "<link",
+      " src=",
+      "http://",
+      "https://",
+      "href=\"/",
+      "href=\"file:"
+    ]
+  },
+  "index": {
+    "containsText": [
+      "Report inbox",
+      "1 recorded session",
+      "Full report ready",
+      "Open leadership report"
+    ],
+    "doesNotContainText": [
+      "Activity receipt",
+      "Analysis blocked",
+      "Analysis failed"
+    ],
+    "relativeReportHref": "../analysis-runs/<generated-run-id>/report.html",
+    "entryCount": 1,
+    "forbiddenMarkup": [
+      "<script",
+      "javascript:",
+      "<link",
+      " src=",
+      "http://",
+      "https://",
+      "href=\"/",
+      "href=\"file:"
+    ]
+  }
+}
